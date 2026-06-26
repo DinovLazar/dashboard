@@ -50,7 +50,8 @@ Next 16.2.3 · React 19.2.4 · TS ^5 · Tailwind v4 · shadcn `base-nova` (+ `@b
 
 ## Risks & follow-ups
 
-- **Owner one-time setup (not a blocker):** install the CodeRabbit GitHub app and connect Codex to `DinovLazar/dashboard` (see `docs/runbooks/ai-review-setup.md`); the Vercel↔GitHub app connect for automatic deploys-on-push (the B.01 preview was deployed via the Vercel CLI). Until CodeRabbit is installed, PRs are reviewed manually.
+- **Owner one-time setup (not a blocker):** install the CodeRabbit GitHub app and connect Codex to `DinovLazar/dashboard` (see `docs/runbooks/ai-review-setup.md`); the Vercel↔GitHub app connect for automatic deploys-on-push (the B.01 preview was deployed via the Vercel CLI). CodeRabbit/Codex weren't connected yet, so the B.01 PR was gated by an independent multi-agent adversarial review + manual verification instead.
+- **Tighten `main` protection before B.02:** self-merge (0 required approvals) is the decided solo-dev setting and is low-risk for B.01 (no secrets/auth/data). Before B.02 lands real per-client tokens, consider requiring a green CodeRabbit check (or 1 approval) on `main` so token-handling code gets a second pair of eyes.
 - **`(portal)` is reachable without auth** until B.02 — expected for the shell phase, but the very next phase must gate it.
 - Brand `globals.css` deviates from Vertex in one spot (the shadcn token bridge wraps HSL triplets in `hsl()`); see `dashboard-Decisions.md`.
 

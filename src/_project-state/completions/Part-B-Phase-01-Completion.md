@@ -4,7 +4,7 @@
 
 - **Repo:** https://github.com/DinovLazar/dashboard (public)
 - **Vercel preview:** https://dashboard-six-iota-33.vercel.app
-- **Branch / PR:** `b-01-project-setup` → [PR #1](https://github.com/DinovLazar/dashboard/pull/1) (squash-merged to `main`)
+- **Branch / PR:** `b-01-project-setup` → [PR #1](https://github.com/DinovLazar/dashboard/pull/1), squash-merged to `main` as the closing step of the phase — after an independent multi-agent review passed (see §7 for AI-reviewer status)
 
 ---
 
@@ -60,7 +60,9 @@ New repo, so everything is new. Highlights:
 ## 7. Risks, follow-ups, what the next phase needs to know
 
 - **Security boundary is not yet exercised** — there are no tokens, no auth, no data in B.01, so there is nothing to leak. From B.02 onward the load-bearing rules become real: server-only per-client tokens, authenticate-then-authorize on **every** mutation, least-privilege Editor tokens, and the **cross-tenant isolation test** that must cover the write path before the editor ships. The `(portal)` routes are currently **reachable without auth** — B.02 must gate them first.
-- **Owner one-time setup (non-blocking):** install the CodeRabbit GitHub app and connect Codex to the repo (`docs/runbooks/ai-review-setup.md`); connect the Vercel↔GitHub app so pushes auto-deploy (B.01's preview was a CLI deploy). Until CodeRabbit is installed, PRs are reviewed manually.
+- **AI review gate for this PR:** CodeRabbit + Codex are **not yet connected** (owner one-time step). In their place, PR #1 was gated by an **independent multi-agent adversarial review** (security/zero-secrets · build & config · brand & shell · DoD & docs — all four passed, plus a completeness critic) and manual desktop+mobile verification, before self-merge. Install CodeRabbit so future PRs get automatic review.
+- **Owner one-time setup (non-blocking):** install the CodeRabbit GitHub app and connect Codex (`docs/runbooks/ai-review-setup.md`); connect the Vercel↔GitHub app so pushes auto-deploy (B.01's preview was a CLI deploy).
+- **Tighten `main` protection before B.02 (security phases):** B.01 carries no secrets, no auth, no data, so self-merge (0 required approvals — the decided solo-dev setting) is low-risk here. But from B.02 real per-client tokens land. Recommend the owner add a required green CodeRabbit check (or 1 required approval) on `main` before the security-bearing phases merge, so the token-handling code gets a genuine second pair of eyes.
 - **`globals.css` deviation** (the `hsl()` bridge wrap) is intentional and documented — keep it when extending the theme.
 
 ## 8. What's now possible that wasn't before
