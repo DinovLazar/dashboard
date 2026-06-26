@@ -1,0 +1,299 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* =========================================================
+   Vertex Consulting client blog portal — design tokens.
+
+   These are copied verbatim from the Vertex marketing site
+   (`src/app/globals.css`) so the portal reads as Vertex, not a
+   shadcn template default. The portal is a lean, dark-only,
+   single-surface app, so the marketing site's division system,
+   light-mode palette, theme-toggle view-transition, glass/nav/
+   hero/map machinery, and chat-widget styles are intentionally
+   NOT ported — only the brand `@theme` tokens, the shadcn token
+   bridge, the base layer, and the brand text/focus utilities are.
+   ========================================================= */
+
+/* color-scheme — tells the UA to render native form controls,
+   scrollbars, and text-selection highlights dark. The portal has
+   no light theme, so this is unconditional. */
+html {
+  color-scheme: dark;
+}
+
+/* Fonts — Archivo (neogrotesque sans, headings) + Source Serif 4 (humanist
+   serif, body). next/font sets `--font-heading` and `--font-body` on <html>
+   via className injection (see `src/app/layout.tsx`). `@theme inline` tells
+   Tailwind v4 to skip the `:root` emission (which would otherwise self-
+   reference the next/font vars and drop the system fallback tail) and instead
+   generate `.font-heading { font-family: var(--font-heading), ... }` directly,
+   so the system fallback is preserved in the utility itself. */
+@theme inline {
+  --font-heading: var(--font-heading), system-ui, sans-serif;
+  --font-body: var(--font-body), Georgia, "Times New Roman", serif;
+  --font-sans: var(--font-heading), system-ui, sans-serif;
+}
+
+@theme {
+  /* Neutral grayscale core (unified palette) */
+  --color-ink: #0E0E0E;
+  --color-surface: #121212;
+  --color-elevated: #1C1C1C;
+  --color-border: #262626;
+  --color-muted: #A3A3A3;
+  --color-bright: #F5F5F5;
+
+  /* Consulting grays (monochrome) */
+  --color-consulting-bg: #141414;
+  --color-consulting-surface: #1C1C1C;
+  --color-consulting-card: #262626;
+  --color-consulting-elevated: #333333;
+  --color-consulting-border: #404040;
+  --color-consulting-600: #525252;
+  --color-consulting-500: #737373;
+  --color-consulting-400: #A3A3A3;
+  --color-consulting-300: #D4D4D4;
+  --color-consulting-200: #E5E5E5;
+  --color-consulting-100: #F5F5F5;
+  --color-consulting-50: #FAFAFA;
+
+  /* Shared brand — grayscale (primary action = bright white) */
+  --color-brand-900: #0E0E0E;
+  --color-brand-800: #1C1C1C;
+  --color-brand-600: #F5F5F5;
+  --color-brand-400: #A3A3A3;
+  --color-brand-200: #C9C9C9;
+  --color-brand-50: #F5F5F5;
+
+  /* Accent */
+  --color-accent-gold: #D4A017;
+  --color-accent-terracotta: #E2725B;
+  --color-accent-success: #10B981;
+  --color-accent-error: #EF4444;
+
+  /* Typography scale — display/H1/H2 are fluid (clamp) so they shrink
+     gracefully on narrow viewports without clipping at ~375px. Min values
+     target 375px mobile; max values match the desktop sizes. */
+  --text-display-lg: clamp(42px, 26.25px + 4.2vw, 80px);
+  --text-display-lg--line-height: 1.04;
+  --text-display-lg--letter-spacing: -0.025em;
+  --text-display-lg--font-weight: 700;
+
+  --text-display: clamp(36px, 24.4px + 3.1vw, 64px);
+  --text-display--line-height: 1.06;
+  --text-display--letter-spacing: -0.022em;
+  --text-display--font-weight: 700;
+
+  --text-h1: clamp(32px, 25.4px + 1.77vw, 48px);
+  --text-h1--line-height: 1.14;
+  --text-h1--letter-spacing: -0.018em;
+  --text-h1--font-weight: 700;
+
+  --text-h2: clamp(28px, 24.7px + 0.88vw, 36px);
+  --text-h2--line-height: 1.2;
+  --text-h2--letter-spacing: -0.012em;
+  --text-h2--font-weight: 600;
+
+  --text-h3: 22px;
+  --text-h3--line-height: 1.28;
+  --text-h3--letter-spacing: -0.008em;
+  --text-h3--font-weight: 600;
+
+  --text-body-lg: 18px;
+  --text-body-lg--line-height: 1.65;
+  --text-body-lg--font-weight: 400;
+
+  --text-body: 16px;
+  --text-body--line-height: 1.65;
+  --text-body--font-weight: 400;
+
+  --text-small: 14px;
+  --text-small--line-height: 1.55;
+  --text-small--font-weight: 400;
+
+  --text-micro: 12px;
+  --text-micro--line-height: 1.4;
+  --text-micro--font-weight: 500;
+
+  /* Overline — short uppercase labels sitting above headlines. */
+  --text-overline: 11px;
+  --text-overline--line-height: 1.4;
+  --text-overline--letter-spacing: 0.14em;
+  --text-overline--font-weight: 600;
+
+  /* Custom radius */
+  --radius-card: 12px;
+  --radius-button: 8px;
+  --radius-pill: 9999px;
+
+  /* Animation tokens (Tailwind v4 reads `--animate-*` into animate-* utilities) */
+  --animate-glow-pulse: glow-pulse 3s ease-in-out infinite;
+  --animate-fade-in: fade-in 0.5s ease-out;
+  --animate-slide-up: slide-up 0.5s ease-out;
+}
+
+/* =========================================================
+   Keyframes (needed alongside the --animate-* tokens)
+   ========================================================= */
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.4; }
+  50%      { opacity: 0.7; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(30px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* =========================================================
+   shadcn base-nova token bridge. Maps the shadcn semantic
+   tokens (consumed by the ui/ primitives) onto the HSL values
+   defined in @layer base below, so every primitive renders in
+   the Vertex grayscale palette.
+   ========================================================= */
+@theme inline {
+  /* The shadcn HSL tokens below are stored as space-separated triplets
+     (e.g. `0 0% 96%`), so they must be wrapped in hsl() here for the
+     generated utilities to be valid colors. (Vertex's marketing site maps
+     these without hsl() because its visible UI uses bespoke classes and
+     never exercises the shadcn primitives; the portal uses the primitives
+     directly, so the wrap is required for buttons/inputs to render.) */
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-ring: hsl(var(--ring));
+  --color-input: hsl(var(--input));
+  --color-border: hsl(var(--border));
+  --color-destructive: hsl(var(--destructive));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-card: hsl(var(--card));
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+@layer base {
+  :root {
+    /* shadcn HSL tokens — unified grayscale dark palette (canonical Vertex). */
+    --background: 0 0% 8%;
+    --foreground: 0 0% 96%;
+    --muted: 0 0% 11%;
+    --muted-foreground: 0 0% 45%;
+    --card: 0 0% 15%;
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 10%;
+    --popover-foreground: 0 0% 96%;
+    --border: 0 0% 25%;
+    --input: 0 0% 25%;
+    --ring: 0 0% 96%;
+    --primary: 0 0% 96%;
+    --primary-foreground: 0 0% 8%;
+    --secondary: 0 0% 15%;
+    --secondary-foreground: 0 0% 90%;
+    --accent: 0 0% 20%;
+    --accent-foreground: 0 0% 96%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --radius: 0.5rem;
+
+    /* Surface / text tokens the body + shell read from. Dark values only
+       (the portal has no light theme). Mirrors Vertex's --division-* set. */
+    --surface-bg: #141414;
+    --surface-raised: #1C1C1C;
+    --surface-card: #262626;
+    --surface-line: #404040;
+    --surface-accent: #F5F5F5;
+    --surface-accent-muted: #333333;
+    --surface-glow: rgba(245, 245, 245, 0.05);
+    --text-primary: #F5F5F5;
+    --text-secondary: #A3A3A3;
+    --text-faint: #737373;
+  }
+
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    font-family: var(--font-body);
+    background-color: var(--surface-bg);
+    color: var(--text-primary);
+    -webkit-font-smoothing: antialiased;
+    font-kerning: normal;
+    /* Source Serif 4 OpenType features: standard ligatures + contextual
+       alternates for clean body text, plus lining figures so numbers sit
+       flush on the baseline. */
+    font-feature-settings: "kern", "liga", "calt";
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+    /* Prevent a single long word from overflowing its container at ~375px. */
+    overflow-wrap: anywhere;
+    font-feature-settings: "kern", "liga", "calt", "ss01";
+  }
+}
+
+/* =========================================================
+   Brand utility layer
+   ========================================================= */
+@layer utilities {
+  /* Keyboard focus ring for <Link>s and interactive non-button elements.
+     Only triggers on :focus-visible, so mouse clicks don't show the ring. */
+  .focus-ring {
+    @apply outline-none;
+  }
+  .focus-ring:focus-visible {
+    @apply outline outline-2 outline-offset-2 rounded-sm;
+    outline-color: var(--surface-accent);
+  }
+
+  /* Focus treatment for form inputs — a strong ring that meets WCAG 1.4.11
+     (non-text contrast 3:1) against the dark form surface. */
+  .form-input-focus {
+    @apply outline-none transition-colors;
+  }
+  .form-input-focus:focus-visible {
+    @apply outline outline-2 outline-offset-2;
+    outline-color: var(--surface-accent);
+    border-color: var(--surface-accent);
+  }
+
+  /* Overline — the short uppercase label that sits above headings. Bundles
+     size / weight / tracking / case into one class. Renders in the heading
+     face because overlines are structural labels, not prose. */
+  .overline {
+    font-family: var(--font-heading);
+    font-size: var(--text-overline);
+    line-height: var(--text-overline--line-height);
+    font-weight: var(--text-overline--font-weight);
+    letter-spacing: var(--text-overline--letter-spacing);
+    text-transform: uppercase;
+  }
+
+  /* Tabular figures — column-align numbers (e.g. post dates in a list). */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
