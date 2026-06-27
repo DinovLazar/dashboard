@@ -1,15 +1,15 @@
 # Stack and Configuration
 
-The real, verified stack for the Vertex Consulting client blog portal as of **Phase B.02** (2026-06-26). Append changes as they land; keep it factual.
+The real, verified stack for the Vertex Consulting client blog portal as of **Phase B.03** (2026-06-27). Append changes as they land; keep it factual.
 
-**Build status: building clean with auth live.** `npm run build` passes and `npm run lint` is clean; `/login` and `/posts` are dynamic (`ƒ`), and the proxy is active.
+**Build status: building clean with auth + the registry data layer.** `npm run build` passes, `npm run lint` is clean, and `npm test` is green (10 crypto unit tests). The Supabase registry schema (three tables + RLS) lives in `supabase/migrations/`; the encrypted-token crypto module and the service-role client are in place. `/login` and `/posts` are dynamic (`ƒ`), and the proxy is active.
 
 ## Framework and runtime
 
 - **Next.js 16.2.3** (App Router, Turbopack build)
 - **React 19.2.4** / **react-dom 19.2.4**
 - **TypeScript ^5** (strict)
-- **Node:** built and verified on Node 26.x locally and on Vercel (Next 16 requires Node ≥ 20.9). No `.nvmrc` pinned yet.
+- **Node:** built and verified on Node 26.x locally and on Vercel (Next 16 requires Node ≥ 20.9). B.03 scripts use `process.loadEnvFile` (Node ≥ 20.12). No `.nvmrc` pinned yet.
 - **Hosting:** Vercel — project `dinovlazars-projects/dashboard` (preview for B.01; custom subdomain comes in Bucket P).
 
 ## Dependencies (production) — actual
@@ -26,32 +26,49 @@ The real, verified stack for the Vertex Consulting client blog portal as of **Ph
 | `tw-animate-css` | `^1.4.0` | animation utilities (imported in `globals.css`) |
 | `lucide-react` | `^1.8.0` | icon set (`base-nova` icon library) |
 | `@supabase/ssr` | `0.12.0` (exact) | **B.02** — server-side auth for Next.js App Router (browser/server/proxy clients, cookie-based sessions) |
-| `@supabase/supabase-js` | `2.108.2` (exact) | **B.02** — Supabase JS client (`@supabase/ssr` peer; satisfies its `^2.108.0` requirement) |
+| `@supabase/supabase-js` | `2.108.2` (exact) | **B.02** — Supabase JS client (`@supabase/ssr` peer); also used by the **B.03** service-role client + verify script |
+| `server-only` | `0.0.1` (exact) | **B.03** — marker package: makes `import 'server-only'` in `admin.ts` / `tokens.ts` a build error if ever pulled into a client bundle (the version Next itself uses) |
 
-All versions mirror the Vertex marketing site exactly, except `@base-ui/react` (Vertex pins `^1.4.0`; npm resolved `^1.6.0` here — compatible, satisfies Vertex's range). The two `@supabase/*` packages are pinned **exact** (no caret), matching the `next`/`react` pinning convention.
+All versions mirror the Vertex marketing site exactly, except `@base-ui/react` (Vertex pins `^1.4.0`; npm resolved `^1.6.0` here — compatible, satisfies Vertex's range). The `@supabase/*` and `server-only` packages are pinned **exact** (no caret), matching the `next`/`react` pinning convention.
 
-**Intentionally NOT yet added** (arrive in the phase that needs them): `@sanity/client` / `next-sanity` (B.04), a portable-text editor (B.05), `resend` (optional). The Supabase **service-role key** and any token-encryption library are **not** added in B.02 — they arrive server-side in B.03. No 3D/animation libraries (the portal has no public marketing surface).
+**Token encryption uses Node's built-in `node:crypto` (AES-256-GCM)** — no third-party crypto library is added. **Intentionally NOT yet added** (arrive in the phase that needs them): `@sanity/client` / `next-sanity` (B.04), a portable-text editor (B.05), `resend` (optional). No 3D/animation libraries (the portal has no public marketing surface).
 
 ## Dependencies (dev) — actual
 
-`@tailwindcss/postcss ^4`, `tailwindcss ^4`, `@types/node ^20`, `@types/react ^19`, `@types/react-dom ^19`, `eslint ^9`, `eslint-config-next 16.2.3`, `typescript ^5`.
+`@tailwindcss/postcss ^4`, `tailwindcss ^4`, `@types/node ^20`, `@types/react ^19`, `@types/react-dom ^19`, `eslint ^9`, `eslint-config-next 16.2.3`, `typescript ^5`, **`vitest 4.1.9` (exact)** — test runner (B.03; B.04+ require automated tests), **`tsx 4.22.4` (exact)** — runs the TypeScript seed/verify scripts.
 
 ## Scripts
 
 - `dev` → `next dev` · `build` → `next build` · `start` → `next start` · `lint` → `eslint`
-- (A test runner is selected at B.04 when the cross-tenant isolation test lands.)
+- `test` → `vitest run` · `test:watch` → `vitest` — **B.03**; Vitest is the project test runner (selected here, ahead of B.04).
+- `seed:test-client` → `tsx --tsconfig scripts/tsconfig.json scripts/seed-test-client.ts` — **B.03** operator seed (pass the test user UUID: `npm run seed:test-client -- <uuid>`).
+- `verify:registry` → `tsx --tsconfig scripts/tsconfig.json scripts/verify-registry.ts` — **B.03** operator verification of the "done when" condition.
 
-## Config files (present after B.02)
+## Config files (present after B.03)
 
 - `tsconfig.json` — path alias `@/*` → `./src/*` (mirrors Vertex)
+- `scripts/tsconfig.json` — **B.03** tsx config: extends root, aliases `server-only`/`client-only` → the no-op stub so the scripts run under plain Node (the real bundle keeps the genuine guard)
+- `vitest.config.ts` — **B.03** Vitest config: Node environment, `src/**/*.test.ts`, aliases `server-only`/`client-only` → the no-op stub
+- `test/setup/server-guard-stub.ts` — **B.03** no-op stand-in for the `server-only`/`client-only` marker packages (used only by Vitest + the tsx scripts, never the real build)
+- `supabase/migrations/20260627120000_registry.sql` — **B.03** the registry schema + RLS (applied by the operator; see `docs/runbooks/registry-apply.md`)
 - `src/proxy.ts` — **B.02** Next.js 16 proxy (renamed successor to `middleware.ts`): session refresh + auth redirect; `config.matcher` excludes `_next/static`, `_next/image`, and common static assets
-- `.env.local.example` — **B.02** value-free template for the two browser-safe Supabase vars (tracked via the `!.env.local.example` allowlist in `.gitignore`)
+- `.env.local.example` — value-free template; **B.03** added the two server-only secrets + the verify-script test creds (names/placeholders only; tracked via the `!.env.local.example` allowlist in `.gitignore`)
 - `next.config.ts` — minimal/empty (no i18n, no image remotePatterns yet)
 - `postcss.config.mjs` — `@tailwindcss/postcss` only (Tailwind v4, CSS-first; **no `tailwind.config.js`**)
 - `eslint.config.mjs` — flat config extending `eslint-config-next` core-web-vitals + typescript
 - `components.json` — shadcn: style `base-nova`, base color `neutral`, CSS vars on, css `src/app/globals.css`, lucide icons, RSC on
 - `.gitignore` — copied from Vertex (ignores `.env*`, `.vercel`, `.next/`, `.claude/worktrees/`)
 - `.claude/launch.json` — local preview dev/prod server config (not deployment)
+
+## Data model (B.03 — in Supabase, not a repo path)
+
+Three tables in the portal's Supabase project, all with **Row-Level Security enabled**:
+
+- `clients` — one row per client site: `id` (uuid pk), `label`, `sanity_project_id`, `dataset`, `blog_doc_type`, `field_map` (jsonb), `locales` (text[]), `revalidate_url`, `created_at`. RLS: a user may `SELECT` only the client(s) they are mapped to.
+- `client_users` — `user_id` (uuid **primary key** → one client per user) references `auth.users`, `client_id` references `clients`, `created_at`. RLS: a user may `SELECT` only their own row.
+- `client_secrets` — `client_id` (uuid pk) references `clients`, plus `token_ciphertext` / `token_iv` / `token_auth_tag` (base64 text), `created_at`. **Deny-all to browser sessions:** RLS on + no policy + `revoke all ... from anon, authenticated`. Only the service-role client (BYPASSRLS) reads/writes it.
+
+**Token-at-rest encryption:** per-client Sanity tokens are encrypted with **AES-256-GCM** (`src/lib/crypto/tokens.ts`) before storage — only base64 ciphertext/iv/auth_tag land in `client_secrets`. The 32-byte key lives only in `SANITY_TOKEN_ENC_KEY` (server env), never in the DB, so a DB or service-role compromise alone cannot reveal a token.
 
 ## Theme / brand (in `src/app/globals.css`)
 
@@ -63,14 +80,23 @@ All versions mirror the Vertex marketing site exactly, except `@base-ui/react` (
 
 ## Environment variables — (NEVER commit real values; repo is public)
 
-**Required now (B.02)** — browser-safe, set in `.env.local` locally and in Vercel (Preview/Production). Both are `NEXT_PUBLIC_*` on purpose (protected by Supabase RLS); see `.env.local.example`:
+**Browser-safe (B.02)** — set in `.env.local` locally and in Vercel (Preview/Production). Both are `NEXT_PUBLIC_*` on purpose (protected by Supabase RLS); see `.env.local.example`:
 - `NEXT_PUBLIC_SUPABASE_URL` — the Supabase project URL.
-- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` — the browser-safe **publishable** key. (This is the current Supabase name for the client key; the older docs called it the "anon" key. The portal reads only this name.)
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` — the browser-safe **publishable** key. (Current Supabase name for what older docs called the "anon" key; the portal reads only this name.)
 
-**Coming later** — all configured in Vercel/Supabase env, never in the repo:
-- `SUPABASE_SERVICE_ROLE_KEY` — server-only — B.03
-- A server-only key for encrypting/decrypting per-client Sanity tokens at rest — B.03
-- Per-client Sanity **Editor** tokens — server-only secrets, stored encrypted, never `NEXT_PUBLIC_*`, never logged — M.01
-- `RESEND_API_KEY` (optional)
+**Server-only secrets (B.03)** — never `NEXT_PUBLIC_*`, never logged, never committed; set in `.env.local` and in Vercel:
+- `SUPABASE_SERVICE_ROLE_KEY` — Supabase service-role key. Lets server code read `client_secrets` (which RLS hides from users); bypasses RLS.
+- `SANITY_TOKEN_ENC_KEY` — 32-byte base64 key (`openssl rand -base64 32`) for AES-256-GCM token encryption. Lives only here / in Vercel, never in the database.
+
+**Local one-off, B.03 verify script only** — the test user's own login, used by `npm run verify:registry`; not used by the app itself:
+- `TEST_USER_EMAIL`, `TEST_USER_PASSWORD` (and optional `TEST_USER_ID` so the seed can run without a CLI arg).
+
+**Coming later** — configured in Vercel/Supabase env, never in the repo:
+- Per-client Sanity **Editor** tokens — server-only secrets, encrypted at rest via the above, onboarded in M.01.
+- `RESEND_API_KEY` (optional).
 
 See `dashboard-Project-Instructions.md` §5 for the token-handling rules.
+
+## Security notes (B.03)
+
+- Pre-existing `npm audit` advisories on the pinned `next@16.2.3` (and a transitive `postcss`) are **not** introduced by B.03's dev deps; bumping `next` is out of scope for this phase. Tracked as a follow-up (see `current-state.md` → Risks).

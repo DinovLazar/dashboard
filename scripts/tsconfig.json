@@ -1,0 +1,12 @@
+{
+  "//": "tsx runs the B.03 seed/verify scripts with this config. It extends the root tsconfig and adds path aliases: `@/*` (so scripts can import app modules) and `server-only`/`client-only` mapped to a no-op stub (those modules import 'server-only', whose real package throws outside the Next.js bundler — in a Node script we are already on the server). This config is used ONLY by the scripts; the real Next.js build keeps the genuine guard.",
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "..",
+    "paths": {
+      "@/*": ["src/*"],
+      "server-only": ["test/setup/server-guard-stub.ts"],
+      "client-only": ["test/setup/server-guard-stub.ts"]
+    }
+  }
+}
