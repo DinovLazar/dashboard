@@ -12,10 +12,15 @@ import { defineConfig } from 'vitest/config'
  * In tests we are on the server, so the guard is a no-op — see
  * `test/setup/server-guard-stub.ts`. The genuine guard still protects the real
  * browser bundle, which never uses this config.
+ *
+ * `@` is aliased to `src/` to mirror the `@/*` → `./src/*` tsconfig path the app
+ * code uses, so the B.04+ modules (which import each other via `@/lib/...`)
+ * resolve under Vitest exactly as they do in the Next build.
  */
 const serverGuardStub = fileURLToPath(
   new URL('./test/setup/server-guard-stub.ts', import.meta.url),
 )
+const srcDir = fileURLToPath(new URL('./src', import.meta.url))
 
 export default defineConfig({
   test: {
@@ -26,6 +31,7 @@ export default defineConfig({
     alias: {
       'server-only': serverGuardStub,
       'client-only': serverGuardStub,
+      '@': srcDir,
     },
   },
 })

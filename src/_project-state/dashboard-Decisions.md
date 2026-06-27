@@ -163,3 +163,71 @@ Choices made during B.03 that the phase prompt did not spell out:
 - **Local isolation proof via an in-process Postgres (pglite).** No Docker / Supabase CLI was available locally, so the *actual* migration was run against pglite under a faithful simulation of Supabase's roles + `auth.uid()` to prove cross-tenant isolation offline (not committed — a throwaway harness). The committed, operator-run proof remains `verify-registry.ts` against the real Supabase; the *formal automated* cross-tenant test on the read path is B.04's deliverable.
 
 **Decided by:** Claude, during B.03 implementation. None reverse a prior locked decision; they implement the locked encryption decision (above) and §5 of the project instructions (server-only tokens, RLS, isolation as a tested invariant).
+
+---
+
+## 2026-06-27 — B.04: read/write to Sanity via `@sanity/client` directly (per-tenant, per-request), not `next-sanity`
+
+The portal builds a **server-side `@sanity/client` instance per request**, from the resolved client's projectId + decrypted Editor token. `@sanity/client@7.22.1` is pinned exact (matching the `@supabase/*` pinning convention); `apiVersion` is hard-coded `2026-03-01`.
+
+**Alternatives considered:** `next-sanity` with `defineLive` / `<SanityLive>` (the standard Next.js + Sanity pattern) — **rejected**: it is built around a *single* project client, a *browser* token, and a live-overlay model, none of which fit a multi-tenant portal where every request targets a different project with a different server-only token. We explicitly do not want a browser token (the security boundary forbids it).
+
+**Consequences:** we forgo the Live Content API's automatic real-time refresh and Visual Editing. Acceptable: this is a private editor that re-fetches on navigation and (from B.05) after each write; freshness is guaranteed by `useCdn: false`. Downside accepted: manual re-fetch instead of live updates.
+
+**Decided by:** Claude (orchestrator), in Chat.
+
+## 2026-06-27 — B.04: the read path is a Server Component data call; mutation API routes deferred to B.05
+
+Listing posts is done by the `/posts` Server Component calling a `server-only` data function (`listPosts`) directly, not via an `/api/*` route.
+
+**Alternatives considered:** introduce `/api/posts` now — **rejected**: unnecessary indirection for a server-side read, and it would invite the client to call it directly. Mutations (create/edit/delete/publish) are where request handlers earn their place; those land in B.05.
+
+**Consequences:** B.04 adds no routes. Downside: none material; the `app/api/*` folders planned in the spec simply arrive with the phase that needs them.
+
+**Decided by:** Claude (orchestrator), in Chat.
+
+## 2026-06-27 — B.04: tenant resolution derives everything from the validated session; RLS-scoped config + service-role-only secret; injectable seams for an offline isolation test
+
+The resolver reads the user id from the validated `getClaims()` session (`sub`), looks up the user→client mapping and the client config through the **RLS-scoped** Supabase client, and reads the encrypted token **only** through the service-role client, keyed on the already-resolved client id. A caller can never supply a client/project id or token. The resolver and read path take their external dependencies (session, registry reads, decrypt, Sanity client factory) through small interfaces so the cross-tenant isolation test runs fully offline.
+
+**Alternatives considered:** (a) use the service-role client for *everything*, keyed on the session user id — **rejected**: it discards RLS as an active second control on config reads. (b) Prove isolation only with mocked unit tests and no DB-level evidence — **addressed** by keeping `scripts/verify-registry.ts` as the live RLS proof against the real Supabase, complementary to the offline test.
+
+**Consequences:** the offline test trusts that the production wiring matches the seams; that residual risk is covered by `verify-registry.ts` (live RLS) and by the M.02 end-to-end run. Downside accepted: a thin layer of wiring is exercised live rather than in CI.
+
+**Decided by:** Claude (orchestrator), in Chat.
+
+## 2026-06-27 — B.04: draft/published status derived from Sanity's draft model (`raw` perspective + reduce), not the schema `status` field
+
+The post list reads with `perspective: 'raw'` + token + `useCdn: false`, then reduces the returned variants by logical id: a `drafts.`-only post is `draft`, a published post is `published`, and a post with both is `published` plus `hasUnpublishedEdits: true`. `versions.*` (Content Releases) variants are ignored.
+
+**Alternatives considered:** the `drafts` perspective — **rejected**: it collapses to one entry per post and hides whether a post is published, which the list must display. The schema-level `status` field (present in `field_map`) — **rejected for the list**: its publish semantics are a B.05 write concern and clients do not populate it uniformly.
+
+**Consequences:** status reflects Sanity's actual publish state, which is the source of truth the live site uses. Downside: a published post with unpublished edits shows as `published` (the edit is captured in `hasUnpublishedEdits` for richer display later).
+
+**Decided by:** Claude (orchestrator), in Chat.
+
+## 2026-06-27 — B.04: a live read against a real Sanity project is NOT part of B.04's automated Definition of Done
+
+B.04's authoritative proof of "shows only the logged-in client's posts" is the **offline automated isolation test** plus the `/posts` page rendering correctly from the resolver. The B.03 test client points at a placeholder project, so a live fetch errors by design (handled by the page's error state). Real Editor tokens are onboarded in **M.01**; the full live round-trip per real client is **M.02**.
+
+**Alternatives considered:** require a live read in B.04 — **rejected**: real projects/tokens are a Make-it-work concern by plan, and faking a live read would be dishonest. An optional operator smoke-check (throwaway Sanity project + Editor token, re-seed, view real posts) is available but not a DoD item.
+
+**Consequences:** the security guarantee is proven structurally now and live in M.02. Downside accepted: CI does not exercise a real Sanity fetch until the M bucket.
+
+**Decided by:** Claude (orchestrator), in Chat.
+
+---
+
+## 2026-06-27 — B.04 implementation choices (secure per-tenant Sanity bridge)
+
+Choices made during B.04 that the phase prompt did not spell out (none reverse a locked decision; they implement the five B.04 decisions above and §5 of the project instructions):
+
+- **The `/posts` page computes a render-state object inside try/catch, then renders JSX outside it.** Next 16's `react-hooks/error-boundaries` lint rule forbids *constructing JSX inside a try/catch* (a rendering error there would escape the catch). So `loadPostsState()` returns a discriminated `PostsState` (`not-linked` | `not-ready` | `read-error` | `empty` | `list`) and the component renders from it. Same behaviour the brief asked for, lint-clean. Alternative rejected: returning JSX from within the catch (lints as an error and is genuinely unsafe).
+- **`config-missing` / `secret-missing` resolve to a distinct "Your site isn't ready yet" state**, separate from the `no-client` "not linked" state. The brief named the friendly state only for `no-client`; these two mean the account *is* linked but its registry setup is incomplete, so a different, still-non-leaking message is clearer. Neither leaks the project id or any error text.
+- **`field-map.ts` is intentionally NOT `server-only`** — it holds no secret (pure GROQ-string logic) and imports `TenantConfig` via `import type` (erased at compile time, so it does not pull in the `server-only` guard from `types.ts`). It is only ever imported by the `server-only` read path. The brief's file list did not mark it `server-only`; this matches.
+- **`displayValue` skips Sanity system keys (`_type`, `_key`, …) when reading a localized object**, returning the first *content* locale value rather than a stray `_type` string. Forward-compatible with real localized clients (M.01/B.05); a no-op for the plain-string test client. A missing/te­xt-less title coerces to **"Untitled"** so `PostSummary.title` is always a string.
+- **Production registry reads use Supabase `.maybeSingle()`** (0 rows → `null`, not an error), so an unmapped user / missing config / missing secret cleanly yields the fail-closed `null` the resolver checks for, instead of throwing a PostgREST "no rows" error.
+- **Two extra offline test files beyond the mandated `isolation.test.ts`:** `src/lib/sanity/posts.test.ts` (the `raw`-perspective reduce: status, `hasUnpublishedEdits`, draft-value preference, `versions.*` ignored, sort, `displayValue`) and `src/lib/config/field-map.test.ts` (the GROQ-injection guard + `$type`-as-parameter). Strengthens the read path and the injection guard; the implementation standard calls for tests on what ships.
+- **`@` is aliased to `src/` in `vitest.config.ts`** (mirroring the `@/*` → `./src/*` tsconfig path) so the B.04 modules, which import each other via `@/lib/...`, resolve under Vitest exactly as in the Next build. The existing crypto test used relative imports and never needed it.
+
+**Decided by:** Claude, during B.04 implementation.

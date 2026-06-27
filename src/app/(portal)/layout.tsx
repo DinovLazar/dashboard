@@ -2,6 +2,7 @@ import { redirect } from "next/navigation"
 import { PortalNav } from "@/components/portal/portal-nav"
 import { PortalSidebar } from "@/components/portal/portal-sidebar"
 import { PortalTopbar } from "@/components/portal/portal-topbar"
+import { resolveTenant } from "@/lib/registry/resolve-tenant"
 import { createClient } from "@/lib/supabase/server"
 
 // Authenticated routes must render dynamically and must never be statically
@@ -32,12 +33,23 @@ export default async function PortalLayout({
     redirect("/login")
   }
 
-  // Until the per-client registry lands (B.03), the top-bar label shows the
-  // signed-in user's email. It is replaced by the resolved client label then.
-  const accountLabel =
+  // Top-bar label = the resolved client's label. Best-effort: if resolution
+  // fails (no client linked yet, or a registry/Sanity hiccup), fall back to the
+  // signed-in email so the shell never hard-crashes. `resolveTenant` is
+  // `cache()`-deduplicated, so this shares the page's resolution — no extra
+  // query — and never touches the token here (only `config.label` is read).
+  const emailLabel =
     typeof claims.email === "string" && claims.email.length > 0
       ? claims.email
       : "Account"
+
+  let accountLabel = emailLabel
+  try {
+    const tenant = await resolveTenant()
+    accountLabel = tenant.config.label
+  } catch {
+    // Keep the email fallback; the page renders the appropriate friendly state.
+  }
 
   return (
     <div className="flex min-h-screen">
