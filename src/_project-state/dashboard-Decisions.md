@@ -272,3 +272,31 @@ Choices made during B.05 that the phase prompt did not spell out (none reverse a
 - **Whole-suite tests grew 35 → 105.** New offline files: `localize.test.ts`, `portable-text.test.ts`, `doc-id.test.ts`, `mutations.test.ts`; extended: `field-map.test.ts`, `posts.test.ts` (getPost), and `isolation.test.ts` (the write-path §5 gate).
 
 **Decided by:** Claude, during B.05 implementation.
+
+---
+
+## 2026-06-27 — Featured image: single, non-localized, 4 MB cap, server-side upload only (B.06)
+
+The portal's featured image is **one image per post and is not localized** (consistent with "featured image" in the spec and the single-image shape in client schemas, e.g. Sunset's `mainImage`). Per-locale or multiple images, if a client needs them, stay editable in that client's own Sanity.
+
+**Uploads flow only through the server-side per-tenant Sanity client** — the same token path as every other write, never a browser-exposed token — via a Server Action that re-resolves and re-authorizes the tenant. The bytes upload to the client's own dataset; only the resulting asset reference is written onto the post.
+
+**Validated max image size: 4 MB.** Server Actions run as Vercel Functions, which reject any request body over **4.5 MB** with a 413 — a hard platform limit that cannot be raised and that surfaces only in production. A 4 MB app-level cap (enforced server-side with a friendly error) stays safely under it. Raising it would require a browser-direct-to-Sanity upload with a browser-exposed token, which conflicts with the load-bearing "no Sanity token ever reaches the browser" invariant, so larger images are **out of scope for v1** and left as a possible future enhancement.
+
+**Decided by:** user (Lazar) / Claude (orchestrator), in Chat; baked into `Part-B-Phase-06-Code`. Reverse by adding a new dated entry.
+
+---
+
+## 2026-06-27 — B.06 implementation choices (featured image upload)
+
+Choices made during B.06 that the phase prompt did not spell out (none reverse a locked decision; they implement the featured-image decision above and §5 of the project instructions):
+
+- **The submitted asset id is validated against the canonical Sanity shape (`isValidAssetId`).** The brief said "validate a submitted asset id is a sane bounded token." Concretely: `^image-[A-Za-z0-9]+-\d+x\d+-[a-z0-9]+$` with a 200-char ceiling (lives in `src/lib/sanity/assets.ts`, exported and unit-tested). A malformed id makes `parseFields` throw → the action returns the generic error (never a junk `_ref` write). The id is written as document data, not interpolated into GROQ, but garbage is still refused.
+- **The editor uploads via `useTransition` + a direct action call, not `useActionState`.** The brief allowed either. The `useActionState` result would have to be adopted into local state to drive the preview + hidden field; doing that in a `useEffect` trips Next 16's `react-hooks/set-state-in-effect` lint rule. `useTransition` lets the upload's `setState` run in the (event-driven) transition callback — lint-clean, same UX (spinner via the transition's `isPending`, friendly inline error on failure).
+- **The featured-image control applies its intent onto the final document in `applyImageIntent`, separate from `buildEssentials`.** Because `createOrReplace` replaces the whole document and `saveDraft` carries a read-modify-write `base` that holds the stored image, a CLEAR must actively `delete` the field — a spread can't express "remove a key." `applyImageIntent` handles all three states (preserve / write / clear) on the built doc and **re-validates** the image field name (defense in depth) on top of `assertWritableFieldPaths`.
+- **The file `<input>` is unnamed** so its bytes are never serialized into the main editor form — a Save/Publish never re-uploads the image. Only the chosen asset id rides along, via the hidden `image`/`imageOriginal` inputs; the upload is a separate POST.
+- **The 4 MB cap is inclusive** (`size > 4*1024*1024` rejects; exactly 4 MB is allowed). The preview uses `next/image` with `fill` inside an `aspect-video` box (now that `cdn.sanity.io` is an allowed remote pattern); a post whose image ref resolves without a URL still renders a valid "Image attached" state.
+- **Read path coerces the projected image values to `string | null`** (`asStringOrNull`), so a missing/odd projection becomes `{ assetId: null, url: null }` rather than leaking a non-string into the form.
+- **Whole-suite tests grew 105 → 130.** New file: `src/lib/sanity/assets.test.ts`; extended: `mutations.test.ts` (image set/clear/preserve), `field-map.test.ts` (image projection + write-key validation), `posts.test.ts` (`getPost` image surfacing), and `isolation.test.ts` (the B.06 upload + image-write §5 gate).
+
+**Decided by:** Claude, during B.06 implementation.

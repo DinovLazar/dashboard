@@ -2,12 +2,18 @@ import { describe, expect, it } from 'vitest'
 
 import type { EncryptedToken } from '@/lib/crypto/tokens'
 import {
+  uploadImage,
+  type AssetUploader,
+  type MakeUploader,
+} from '@/lib/sanity/assets'
+import {
   createDraft,
   deletePost,
   publishPost,
   saveDraft,
   type EditorFields,
   type MakeWriter,
+  type MutationDoc,
   type WriteTransaction,
 } from '@/lib/sanity/mutations'
 import { listPosts, type SanityReader } from '@/lib/sanity/posts'
@@ -196,12 +202,16 @@ const PROJECT_WRITE_DOCS: Record<
  */
 function makeRecordingWriter() {
   const constructions: Array<{ config: TenantConfig; token: string }> = []
-  const dispatches: Array<{ project: string; token: string }> = []
+  const dispatches: Array<{
+    project: string
+    token: string
+    doc?: MutationDoc
+  }> = []
 
   const factory: MakeWriter = (config, token) => {
     constructions.push({ config, token })
-    const record = () =>
-      dispatches.push({ project: config.sanityProjectId, token })
+    const record = (doc?: MutationDoc) =>
+      dispatches.push({ project: config.sanityProjectId, token, doc })
     return {
       async fetch<T>(_query: string, params?: Record<string, unknown>): Promise<T> {
         const docs = PROJECT_WRITE_DOCS[config.sanityProjectId] ?? []
@@ -209,8 +219,8 @@ function makeRecordingWriter() {
           (d) => d._id === params?.id || d._id === params?.draftId,
         ) as unknown as T
       },
-      async createOrReplace() {
-        record()
+      async createOrReplace(doc) {
+        record(doc)
         return {}
       },
       transaction(): WriteTransaction {
@@ -228,6 +238,40 @@ function makeRecordingWriter() {
   }
 
   return { factory, constructions, dispatches }
+}
+
+/**
+ * A recording UPLOADER factory (B.06) — the image-upload analogue of
+ * `makeRecordingWriter`. Captures the (config, token) every uploader is built
+ * with and the project + token each actual upload dispatches through, with no
+ * network. The §5 gate asserts a tenant's image bytes never flow through another
+ * tenant's project or token.
+ */
+function makeRecordingUploader() {
+  const constructions: Array<{ config: TenantConfig; token: string }> = []
+  const uploads: Array<{ project: string; token: string }> = []
+
+  const factory: MakeUploader = (config, token): AssetUploader => {
+    constructions.push({ config, token })
+    return {
+      assets: {
+        async upload() {
+          uploads.push({ project: config.sanityProjectId, token })
+          return {
+            _id: 'image-iso-1x1-png',
+            url: 'https://cdn.sanity.io/images/iso/iso/image-iso-1x1-png.png',
+          }
+        },
+      },
+    }
+  }
+
+  return { factory, constructions, uploads }
+}
+
+/** A tiny real image File for the upload-isolation cases. */
+function smallImageFile(): File {
+  return new File([new Uint8Array([1, 2, 3])], 'iso.png', { type: 'image/png' })
 }
 
 /** Run the resolver and return the typed `reason` of the rejection it throws. */
@@ -540,6 +584,136 @@ describe('cross-tenant isolation — B.05 write path (the §5 gate)', () => {
       expect(await reasonOf(run)).toBe('unauthenticated')
       expect(reachedWritePath).toBe(false)
       expect(rec.constructions).toHaveLength(0)
+      expect(mappingReads).toHaveLength(0)
+      expect(secretReads).toHaveLength(0)
+    })
+  })
+})
+
+describe('cross-tenant isolation — B.06 image upload + image write (the §5 gate)', () => {
+  it('an image upload builds + dispatches only through the owner’s project + token', async () => {
+    const { source } = makeRegistry()
+
+    // A → A: the bytes flow only through A's project + token, never B's.
+    const recA = makeRecordingUploader()
+    const tenantA = await resolveTenantWith(depsFor('user-a', source))
+    await uploadImage(tenantA, smallImageFile(), recA.factory)
+
+    expect(recA.constructions.length).toBeGreaterThan(0)
+    for (const c of recA.constructions) {
+      expect(c.config.clientId).toBe('client-a')
+      expect(c.config.sanityProjectId).toBe('project-a')
+      expect(c.token).toBe(TOKEN_A)
+      expect(c.config.sanityProjectId).not.toBe('project-b')
+      expect(c.token).not.toBe(TOKEN_B)
+    }
+    expect(recA.uploads.length).toBeGreaterThan(0)
+    for (const u of recA.uploads) {
+      expect(u.project).toBe('project-a')
+      expect(u.token).toBe(TOKEN_A)
+      expect(u.project).not.toBe('project-b')
+      expect(u.token).not.toBe(TOKEN_B)
+    }
+
+    // B → B symmetrically.
+    const recB = makeRecordingUploader()
+    const tenantB = await resolveTenantWith(depsFor('user-b', source))
+    await uploadImage(tenantB, smallImageFile(), recB.factory)
+
+    for (const u of recB.uploads) {
+      expect(u.project).toBe('project-b')
+      expect(u.token).toBe(TOKEN_B)
+      expect(u.project).not.toBe('project-a')
+      expect(u.token).not.toBe(TOKEN_A)
+    }
+  })
+
+  it('the image reference is written only through the owner’s per-tenant writer', async () => {
+    const { source } = makeRegistry()
+    const recA = makeRecordingWriter()
+    const tenantA = await resolveTenantWith(depsFor('user-a', source))
+
+    const ref = 'image-iso-1x1-png'
+    await saveDraft(
+      tenantA,
+      'a1',
+      { ...WRITE_FIELDS, image: { assetId: ref } },
+      recA.factory,
+    )
+
+    // The save dispatched through A's project + token, and the `_ref` landed on
+    // A's own image field (`mainImage`) via A's writer — never B's.
+    for (const c of recA.constructions) {
+      expect(c.config.sanityProjectId).toBe('project-a')
+      expect(c.token).toBe(TOKEN_A)
+    }
+    const written = recA.dispatches.find((d) => d.doc)
+    expect(written?.project).toBe('project-a')
+    expect(written?.token).toBe(TOKEN_A)
+    expect(written?.doc?.mainImage).toEqual({
+      _type: 'image',
+      asset: { _type: 'reference', _ref: ref },
+    })
+  })
+
+  it('image upload takes no caller-supplied client/project/token — the session identity is the only selector', async () => {
+    // Asserted by construction: `uploadImage(tenant, file, makeUploader)` has no
+    // project/client/token parameter; `tenant` comes only from resolveTenant.
+    const { source } = makeRegistry()
+    const recA = makeRecordingUploader()
+    const recB = makeRecordingUploader()
+
+    const tenantA = await resolveTenantWith(depsFor('user-a', source))
+    const tenantB = await resolveTenantWith(depsFor('user-b', source))
+    await uploadImage(tenantA, smallImageFile(), recA.factory)
+    await uploadImage(tenantB, smallImageFile(), recB.factory)
+
+    expect(
+      recA.uploads.every(
+        (u) => u.token === TOKEN_A && u.project === 'project-a',
+      ),
+    ).toBe(true)
+    expect(
+      recB.uploads.every(
+        (u) => u.token === TOKEN_B && u.project === 'project-b',
+      ),
+    ).toBe(true)
+  })
+
+  describe('fail closed before any upload', () => {
+    it('an unmapped user is denied before any uploader is built or secret read', async () => {
+      const { source, secretReads } = makeRegistry()
+      const rec = makeRecordingUploader()
+
+      let reachedUploadPath = false
+      const run = async () => {
+        const tenant = await resolveTenantWith(depsFor('user-unmapped', source))
+        reachedUploadPath = true
+        await uploadImage(tenant, smallImageFile(), rec.factory)
+      }
+
+      expect(await reasonOf(run)).toBe('no-client')
+      expect(reachedUploadPath).toBe(false)
+      expect(rec.constructions).toHaveLength(0)
+      expect(rec.uploads).toHaveLength(0)
+      expect(secretReads).toHaveLength(0)
+    })
+
+    it('a null session is denied before any uploader is built or registry touched', async () => {
+      const { source, mappingReads, secretReads } = makeRegistry()
+      const rec = makeRecordingUploader()
+
+      let reachedUploadPath = false
+      const run = async () => {
+        const tenant = await resolveTenantWith(depsFor(null, source))
+        reachedUploadPath = true
+        await uploadImage(tenant, smallImageFile(), rec.factory)
+      }
+
+      expect(await reasonOf(run)).toBe('unauthenticated')
+      expect(reachedUploadPath).toBe(false)
+      expect(rec.constructions).toHaveLength(0)
+      expect(rec.uploads).toHaveLength(0)
       expect(mappingReads).toHaveLength(0)
       expect(secretReads).toHaveLength(0)
     })

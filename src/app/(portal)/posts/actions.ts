@@ -6,6 +6,12 @@ import { redirect } from 'next/navigation'
 import { localeList } from '@/lib/config/localize'
 import { resolveTenant } from '@/lib/registry/resolve-tenant'
 import type { TenantContext } from '@/lib/registry/types'
+import {
+  ImageUploadError,
+  isValidAssetId,
+  uploadImage,
+  type ImageUploadReason,
+} from '@/lib/sanity/assets'
 import { normalizePostId } from '@/lib/sanity/doc-id'
 import {
   createDraft,
@@ -34,11 +40,40 @@ import {
 /** The shape `useActionState` binds to in the editor form. */
 export type EditorActionState = { ok: boolean; error: string | null }
 
+/**
+ * The serializable result of an image upload (B.06). Only the asset id + public
+ * CDN url cross back to the browser — never the token, project id, or raw error.
+ */
+export type ImageUploadState = {
+  ok: boolean
+  assetId: string | null
+  url: string | null
+  error: string | null
+}
+
 const GENERIC_ERROR = 'Something went wrong — please try again.'
 const HEADLINE_REQUIRED = 'Please add a headline before saving.'
+const IMAGE_GENERIC_ERROR =
+  'We couldn’t upload that image just now — please try again.'
 
 function fail(): EditorActionState {
   return { ok: false, error: GENERIC_ERROR }
+}
+
+function failImage(error: string): ImageUploadState {
+  return { ok: false, assetId: null, url: null, error }
+}
+
+/** A friendly, specific, non-leaking message per upload-rejection reason. */
+function friendlyImageError(reason: ImageUploadReason): string {
+  switch (reason) {
+    case 'too-large':
+      return 'That image is over 4 MB — please choose a smaller one.'
+    case 'unsupported-type':
+      return 'Please use a JPG, PNG, WebP, or GIF image.'
+    case 'empty':
+      return 'Please choose an image file to upload.'
+  }
 }
 
 /**
@@ -46,6 +81,15 @@ function fail(): EditorActionState {
  * named `title.<locale>` / `excerpt.<locale>` / `body.<locale>`, the slug is
  * `slug`. `includeBody` is false when the post's body is too rich to edit as
  * plain text — then body is omitted so the mutation preserves it untouched.
+ *
+ * The featured image is carried by two hidden fields: `image` (the asset id the
+ * form currently intends) and `imageOriginal` (the asset id the form loaded with).
+ * Their comparison derives the tri-state {@link EditorFields.image}:
+ *   - unchanged → omit `fields.image` (the mutation preserves the stored image);
+ *   - changed to a non-empty, valid asset id → `{ assetId }` (write it);
+ *   - changed to empty (was non-empty) → `{ assetId: null }` (clear it).
+ * A submitted asset id is validated before it is trusted as a `_ref`; a malformed
+ * id throws (the caller turns that into the generic error — never a junk write).
  */
 function parseFields(
   tenant: TenantContext,
@@ -64,6 +108,20 @@ function parseFields(
   const slug = String(formData.get('slug') ?? '').trim()
   const fields: EditorFields = { title, excerpt, slug: slug || null }
   if (includeBody) fields.body = body
+
+  const image = String(formData.get('image') ?? '').trim()
+  const imageOriginal = String(formData.get('imageOriginal') ?? '').trim()
+  if (image !== imageOriginal) {
+    if (image) {
+      if (!isValidAssetId(image)) {
+        throw new Error('Malformed image asset id submitted.')
+      }
+      fields.image = { assetId: image }
+    } else {
+      // Was set, now empty → the user removed the image: clear it.
+      fields.image = { assetId: null }
+    }
+  }
   return fields
 }
 
@@ -146,6 +204,36 @@ export async function publishPostAction(
     return { ok: true, error: null }
   } catch {
     return fail()
+  }
+}
+
+/**
+ * Upload a featured image into the session owner's own Sanity dataset (B.06).
+ *
+ * Re-resolves the tenant with `resolveTenant()` — re-authenticate AND re-authorize
+ * on every POST, exactly like the mutating actions; never trusts a page — then
+ * uploads through the server-side per-tenant client (the token never reaches the
+ * browser). Returns a serializable {@link ImageUploadState}: an oversize/
+ * unsupported/empty file gets a friendly, specific message; any other failure gets
+ * the generic error. The token, project id, and raw error never reach the result.
+ */
+export async function uploadImageAction(
+  _prev: ImageUploadState,
+  formData: FormData,
+): Promise<ImageUploadState> {
+  try {
+    const tenant = await resolveTenant()
+    const file = formData.get('file')
+    if (!(file instanceof File)) {
+      return failImage(friendlyImageError('empty'))
+    }
+    const { assetId, url } = await uploadImage(tenant, file)
+    return { ok: true, assetId, url, error: null }
+  } catch (error) {
+    if (error instanceof ImageUploadError) {
+      return failImage(friendlyImageError(error.reason))
+    }
+    return failImage(IMAGE_GENERIC_ERROR)
   }
 }
 

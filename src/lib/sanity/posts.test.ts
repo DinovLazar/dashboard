@@ -250,6 +250,34 @@ describe('getPost — single-post load for the edit form', () => {
     expect(detail?.fields.body).toEqual({ en: 'bold bit' })
   })
 
+  it('surfaces an already-attached featured image (assetId + public url)', async () => {
+    const { tenant, makeClient } = tenantReading([
+      {
+        _id: 'p1',
+        _updatedAt: '2026-03-01T00:00:00Z',
+        title: 'Has image',
+        body: body('x'),
+        // The query projects these names; the stub returns the doc verbatim.
+        imageAssetId: 'image-abc-100x100-png',
+        imageUrl:
+          'https://cdn.sanity.io/images/x/production/image-abc-100x100-png.png',
+      },
+    ])
+    const detail = await getPost(tenant, 'p1', makeClient)
+    expect(detail?.image).toEqual({
+      assetId: 'image-abc-100x100-png',
+      url: 'https://cdn.sanity.io/images/x/production/image-abc-100x100-png.png',
+    })
+  })
+
+  it('reports nulls for a post with no image', async () => {
+    const { tenant, makeClient } = tenantReading([
+      { _id: 'p1', _updatedAt: '2026-03-01T00:00:00Z', title: 'No image', body: body('x') },
+    ])
+    const detail = await getPost(tenant, 'p1', makeClient)
+    expect(detail?.image).toEqual({ assetId: null, url: null })
+  })
+
   it('loads per-locale values for a multi-locale client', async () => {
     const MULTI: TenantConfig = { ...CONFIG, locales: ['en', 'mk'] }
     const { tenant, makeClient } = tenantReading(
