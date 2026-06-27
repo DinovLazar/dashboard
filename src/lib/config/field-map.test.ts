@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest'
 
 import type { TenantConfig } from '@/lib/registry/types'
 
-import { assertSafeFieldPath, buildPostListQuery } from './field-map'
+import {
+  assertSafeFieldPath,
+  assertWritableFieldPaths,
+  buildPostByIdQuery,
+  buildPostListQuery,
+  slugContainerField,
+} from './field-map'
 
 /**
  * B.04 — field-map → GROQ guard. The doc type is always a bound parameter
@@ -80,5 +86,71 @@ describe('buildPostListQuery', () => {
       fieldMap: { ...CONFIG.fieldMap, title: 'title} | *[_type=="secret"]{' },
     }
     expect(() => buildPostListQuery(evil)).toThrow()
+  })
+})
+
+describe('buildPostByIdQuery', () => {
+  it('binds $id and $draftId as parameters (never interpolates the ids)', () => {
+    const q = buildPostByIdQuery(CONFIG)
+    expect(q).toContain('_id == $id')
+    expect(q).toContain('_id == $draftId')
+    // The literal ids are supplied at fetch time, not baked into the string.
+    expect(q).not.toContain('drafts.')
+  })
+
+  it('projects body in addition to the list fields', () => {
+    const q = buildPostByIdQuery(CONFIG)
+    expect(q).toContain('"title": title')
+    expect(q).toContain('"excerpt": excerpt')
+    expect(q).toContain('"slug": slug.current')
+    expect(q).toContain('"body": body')
+    expect(q).toContain('_id')
+    expect(q).toContain('_updatedAt')
+  })
+
+  it('throws rather than build a query from an unsafe field name (incl. body)', () => {
+    const evil: TenantConfig = {
+      ...CONFIG,
+      fieldMap: { ...CONFIG.fieldMap, body: 'body} | *[_type=="secret"]{' },
+    }
+    expect(() => buildPostByIdQuery(evil)).toThrow()
+  })
+})
+
+describe('assertWritableFieldPaths', () => {
+  it('accepts a config whose write keys are plain identifiers', () => {
+    expect(() => assertWritableFieldPaths(CONFIG)).not.toThrow()
+  })
+
+  it('throws when a write key is malformed (defense in depth against bad rows)', () => {
+    for (const badKey of ['a b', 'title) {', '', '1bad']) {
+      const evil: TenantConfig = {
+        ...CONFIG,
+        fieldMap: { ...CONFIG.fieldMap, body: badKey },
+      }
+      expect(() => assertWritableFieldPaths(evil)).toThrow()
+    }
+  })
+})
+
+describe('slugContainerField', () => {
+  it('derives the container before the first dot', () => {
+    expect(slugContainerField(CONFIG)).toBe('slug')
+  })
+
+  it('returns a bare slug field unchanged', () => {
+    const bare: TenantConfig = {
+      ...CONFIG,
+      fieldMap: { ...CONFIG.fieldMap, slug: 'slug' },
+    }
+    expect(slugContainerField(bare)).toBe('slug')
+  })
+
+  it('validates the derived container (rejects a malformed slug field)', () => {
+    const evil: TenantConfig = {
+      ...CONFIG,
+      fieldMap: { ...CONFIG.fieldMap, slug: 'sl ug.current' },
+    }
+    expect(() => slugContainerField(evil)).toThrow()
   })
 })

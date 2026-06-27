@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { TenantConfig, TenantContext } from '@/lib/registry/types'
 
-import { displayValue, listPosts, type SanityReader } from './posts'
+import { displayValue, getPost, listPosts, type SanityReader } from './posts'
 
 /**
  * B.04 — read-path reduce logic. Proves the `raw`-perspective variants collapse
@@ -135,5 +135,139 @@ describe('displayValue', () => {
     expect(displayValue(42)).toBeNull()
     expect(displayValue(['a', 'b'])).toBeNull()
     expect(displayValue({ _type: 'localeString' })).toBeNull()
+  })
+})
+
+describe('getPost — single-post load for the edit form', () => {
+  const SINGLE: TenantConfig = { ...CONFIG, locales: ['en'] }
+
+  function tenantReading(docs: Array<Record<string, unknown>>, config = SINGLE) {
+    const tenant: TenantContext = { config, token: 'unused-in-stub' }
+    const makeClient = (): SanityReader => ({
+      async fetch<T>(): Promise<T> {
+        return docs as unknown as T
+      },
+    })
+    return { tenant, makeClient }
+  }
+
+  /** A simple, editable Portable Text body (one normal paragraph per entry). */
+  const body = (text: string) => [
+    {
+      _type: 'block',
+      _key: 'b0',
+      style: 'normal',
+      markDefs: [],
+      children: [{ _type: 'span', _key: 'b0s0', text, marks: [] }],
+    },
+  ]
+
+  it('loads a published-only post with per-locale fields and editable body', async () => {
+    const { tenant, makeClient } = tenantReading([
+      {
+        _id: 'p1',
+        _updatedAt: '2026-03-01T00:00:00Z',
+        title: 'Live headline',
+        excerpt: 'Live summary',
+        slug: 'live-headline',
+        body: body('Hello world'),
+      },
+    ])
+    const detail = await getPost(tenant, 'p1', makeClient)
+    expect(detail).toMatchObject({
+      id: 'p1',
+      status: 'published',
+      hasUnpublishedEdits: false,
+      bodyEditable: true,
+      updatedAt: '2026-03-01T00:00:00Z',
+    })
+    expect(detail?.fields).toEqual({
+      title: { en: 'Live headline' },
+      excerpt: { en: 'Live summary' },
+      body: { en: 'Hello world' },
+      slug: 'live-headline',
+    })
+  })
+
+  it('prefers the draft working copy and marks unpublished edits', async () => {
+    const { tenant, makeClient } = tenantReading([
+      { _id: 'p1', _updatedAt: '2026-03-01T00:00:00Z', title: 'Published', body: body('old') },
+      { _id: 'drafts.p1', _updatedAt: '2026-03-05T00:00:00Z', title: 'Draft', body: body('new') },
+    ])
+    const detail = await getPost(tenant, 'p1', makeClient)
+    expect(detail).toMatchObject({
+      status: 'published',
+      hasUnpublishedEdits: true,
+      updatedAt: '2026-03-05T00:00:00Z',
+    })
+    expect(detail?.fields.title).toEqual({ en: 'Draft' })
+    expect(detail?.fields.body).toEqual({ en: 'new' })
+  })
+
+  it('marks a draft-only post as draft', async () => {
+    const { tenant, makeClient } = tenantReading([
+      { _id: 'drafts.p1', _updatedAt: '2026-03-05T00:00:00Z', title: 'Only draft', body: body('x') },
+    ])
+    const detail = await getPost(tenant, 'p1', makeClient)
+    expect(detail).toMatchObject({ status: 'draft', hasUnpublishedEdits: false })
+  })
+
+  it('normalizes a drafts.-prefixed id submitted by a caller', async () => {
+    const { tenant, makeClient } = tenantReading([
+      { _id: 'p1', _updatedAt: '2026-03-01T00:00:00Z', title: 'Live', body: body('x') },
+    ])
+    const detail = await getPost(tenant, 'drafts.p1', makeClient)
+    expect(detail?.id).toBe('p1')
+    expect(detail?.status).toBe('published')
+  })
+
+  it('returns null when neither variant exists', async () => {
+    const { tenant, makeClient } = tenantReading([
+      { _id: 'other', _updatedAt: '2026-03-01T00:00:00Z', title: 'Other', body: body('x') },
+    ])
+    expect(await getPost(tenant, 'p1', makeClient)).toBeNull()
+  })
+
+  it('returns null for an invalid (injected) id rather than throwing', async () => {
+    const { tenant, makeClient } = tenantReading([])
+    expect(await getPost(tenant, '* | *[_type=="secret"]', makeClient)).toBeNull()
+  })
+
+  it('flags a rich body as not editable but still surfaces its text read-only', async () => {
+    const richBody = [
+      {
+        _type: 'block',
+        style: 'normal',
+        markDefs: [],
+        children: [{ _type: 'span', text: 'bold bit', marks: ['strong'] }],
+      },
+    ]
+    const { tenant, makeClient } = tenantReading([
+      { _id: 'p1', _updatedAt: '2026-03-01T00:00:00Z', title: 'Rich', body: richBody },
+    ])
+    const detail = await getPost(tenant, 'p1', makeClient)
+    expect(detail?.bodyEditable).toBe(false)
+    expect(detail?.fields.body).toEqual({ en: 'bold bit' })
+  })
+
+  it('loads per-locale values for a multi-locale client', async () => {
+    const MULTI: TenantConfig = { ...CONFIG, locales: ['en', 'mk'] }
+    const { tenant, makeClient } = tenantReading(
+      [
+        {
+          _id: 'p1',
+          _updatedAt: '2026-03-01T00:00:00Z',
+          title: { _type: 'localeString', en: 'Hello', mk: 'Здраво' },
+          excerpt: { en: 'Summary', mk: 'Резиме' },
+          slug: 'hello',
+          body: { en: body('English body'), mk: body('Macedonian body') },
+        },
+      ],
+      MULTI,
+    )
+    const detail = await getPost(tenant, 'p1', makeClient)
+    expect(detail?.fields.title).toEqual({ en: 'Hello', mk: 'Здраво' })
+    expect(detail?.fields.body).toEqual({ en: 'English body', mk: 'Macedonian body' })
+    expect(detail?.bodyEditable).toBe(true)
   })
 })

@@ -1,6 +1,6 @@
 # File Map — Dashboard (Vertex client blog portal)
 
-Where things live. **Build status: auth + registry + secure per-tenant Sanity read path (Phase B.04 complete).** Real paths below; every phase updates this file as files land.
+Where things live. **Build status: auth + registry + secure per-tenant Sanity read AND write path — the config-driven editor (Phase B.05 complete).** Real paths below; every phase updates this file as files land.
 
 ## Repo root
 
@@ -71,12 +71,18 @@ Where things live. **Build status: auth + registry + secure per-tenant Sanity re
 - `(auth)/login/actions.ts` — **B.02** `'use server'` `signIn` action (`signInWithPassword`; generic error; redirect to `/posts` on success)
 - `(portal)/layout.tsx` — authenticated-portal shell; **B.02 authoritative gate** (`getClaims()` → redirect anon to `/login`) + `export const dynamic = 'force-dynamic'`; **B.04:** top-bar label = resolved client label (best-effort via the `cache()`d `resolveTenant`, email fallback)
 - `(portal)/actions.ts` — **B.02** `'use server'` `signOut` action (`signOut()` + redirect to `/login`)
-- `(portal)/posts/page.tsx` — **B.04** the per-tenant read path: resolves the tenant → `listPosts` → renders the client label + populated list, or the empty / not-linked / not-ready / read-error states; "New post" buttons inert (editor = B.05). Computes a render-state object inside try/catch, renders JSX outside it (error-boundaries lint rule)
+- `(portal)/posts/page.tsx` — **B.04** the per-tenant read path: resolves the tenant → `listPosts` → renders the client label + populated list, or the empty / not-linked / not-ready / read-error states. Computes a render-state object inside try/catch, renders JSX outside it (error-boundaries lint rule). **B.05:** both "New post" buttons are now links to `/posts/new`
+- `(portal)/posts/actions.ts` — **B.05** `'use server'` mutating actions (`createPostAction` / `saveDraftAction` / `publishPostAction` / `deletePostAction`). Each **re-resolves the tenant** (`resolveTenant()`) — re-auth + re-authorize on every POST — parses per-locale fields from `FormData`, dispatches the matching `mutations.ts` function, `revalidatePath`s, and returns a generic non-leaking result or `redirect`s. `redirect()` is always outside the try/catch
+- `(portal)/posts/new/page.tsx` — **B.05** create-mode editor page (Server Component): resolves the tenant for its config (labels/locales) → renders `<PostEditor mode="create">`; resolution failure → friendly not-linked / not-ready notice
+- `(portal)/posts/[id]/page.tsx` — **B.05** edit-mode editor page (Server Component): `getPost(tenant, id)` → `<PostEditor mode="edit">` with the post's per-locale values + status; null → friendly not-found; read failure → friendly error. `params` is awaited (Next 16 async params)
 
 ## src/components/
 
 - `ui/` — shadcn `base-nova` primitives: `button.tsx`, `input.tsx`, `label.tsx`, `card.tsx`
-- `portal/` — shell pieces: `wordmark.tsx`, `portal-sidebar.tsx`, `portal-topbar.tsx` (**B.02:** sign-out wired to the `signOut` Server Action; `initialsFor` handles email labels), `portal-nav.tsx`; **B.04** `posts-list.tsx` — presentational post list (Server Component; takes only `PostSummary[]` — never the tenant/token; title + draft/published badge with an "edited" hint + relative last-updated time)
+- `portal/` — shell pieces: `wordmark.tsx`, `portal-sidebar.tsx`, `portal-topbar.tsx` (**B.02:** sign-out wired to the `signOut` Server Action; `initialsFor` handles email labels), `portal-nav.tsx`; **B.04** `posts-list.tsx` — presentational post list (Server Component; takes only `PostSummary[]` — never the tenant/token; title + draft/published badge with an "edited" hint + relative last-updated time); **B.05:** each row is now a `Link` to `/posts/[id]`
+- `editor/` — **B.05** the config-driven editor:
+  - `post-editor.tsx` — `'use client'` form: per-locale headline/summary/body + slug, inert "coming soon" image field, locale tabs when multi-locale, Save-draft / Publish (shared form via `formAction`) + Delete-with-confirm. Uses `useActionState`; receives **only** serializable non-secret props (locales + per-locale values + status) — never the tenant/token; imports the four Server Actions directly
+  - `editor-message.tsx` — presentational Server Component for the editor pages' friendly not-linked / not-ready / not-found / read-error states (with a "Back to posts" link); never receives a tenant/token/raw error
 
 ## src/lib/
 
@@ -94,17 +100,23 @@ Where things live. **Build status: auth + registry + secure per-tenant Sanity re
   - `types.ts` — `import 'server-only'`; `TenantConfig` (camelCase mirror of a `clients` row) + `TenantContext` (`{ config, token }`; the `token` doc-comment forbids serializing it to the browser)
   - `resolve-tenant.ts` — `import 'server-only'`; `resolveTenantWith(deps)` pure core (fails closed: `unauthenticated`/`no-client`/`config-missing`/`secret-missing`) + `cache()`d `resolveTenant` wiring the real session/RLS/service-role/decrypt seams; `TenantResolutionError`; `mapRowToConfig`; the `RegistrySource`/`ResolveDeps`/`ClientRow` seam types
   - `isolation.test.ts` — **the load-bearing** offline cross-tenant isolation test (A→A/B→B, built-with-owner's-project+token, no caller override, secret keyed to owner, fail-closed paths)
-- `sanity/` — **B.04** the per-tenant Sanity bridge:
+- `sanity/` — **B.04/B.05** the per-tenant Sanity bridge (read + write):
   - `client.ts` — `import 'server-only'`; `SANITY_API_VERSION` (`'2026-03-01'`) + `createTenantSanityClient(config, token)` (`@sanity/client`; `useCdn:false`, `perspective:'raw'`; throws on empty token)
-  - `posts.ts` — `import 'server-only'`; `PostSummary`, `SanityReader` (injectable transport), `listPosts(tenant, makeClient?)` (raw-variant reduce → one row per logical post), `displayValue`
-  - `posts.test.ts` — offline reduce tests (status, `hasUnpublishedEdits`, draft-preference, `versions.*` ignored, sort, `displayValue`)
-- `config/` — **B.04** field-map helpers (NOT `server-only` — pure logic, no secret):
-  - `field-map.ts` — `assertSafeFieldPath` (GROQ-injection guard) + `buildPostListQuery` (`$type` as a bound parameter)
-  - `field-map.test.ts` — offline guard + query tests (injection rejected, `$type` parameterized)
+  - `posts.ts` — `import 'server-only'`; **B.04** `PostSummary`, `SanityReader` (injectable transport), `listPosts(tenant, makeClient?)` (raw-variant reduce → one row per logical post), `displayValue`; **B.05** `getPost(tenant, id, makeClient?)` + `PostDetail` (single-post load: draft-preferred reduce, per-locale field values, `bodyEditable`, id-normalized)
+  - `posts.test.ts` — offline reduce tests + **B.05** `getPost` tests (draft preference, per-locale, `bodyEditable`, normalization, not-found)
+  - `mutations.ts` — **B.05** `import 'server-only'`; the **only** write site: `createDraft` / `saveDraft` / `publishPost` / `deletePost` + the injectable `SanityWriter` / `WriteTransaction` / `MakeWriter` seam, `EditorFields`. Draft-id model; read-modify-write overlay; atomic publish/delete transactions; token never returned/logged
+  - `mutations.test.ts` — **B.05** offline dispatch-shape tests (drafts.<id> target, non-essential preservation, publish/delete transactions, no image key, no token leak)
+  - `doc-id.ts` — **B.05** NOT `server-only` (pure, no secret): `normalizePostId` (strip `drafts.`/`versions.` prefixes, reject non-plain ids) / `isValidDocId` / `draftId` — single source of truth for id sanitization
+  - `doc-id.test.ts` — **B.05** offline id-sanitization tests (prefix stripping, injection/path rejection)
+- `config/` — **B.04/B.05** field-map + locale + Portable Text helpers (NOT `server-only` — pure logic, no secret):
+  - `field-map.ts` — `assertSafeFieldPath` (GROQ-injection guard) + `buildPostListQuery` (`$type` bound); **B.05** `buildPostByIdQuery` (`$id`/`$draftId` bound, projects body), `assertWritableFieldPaths` (validates mutation keys), `slugContainerField` (derives the slug container)
+  - `field-map.test.ts` — guard + query tests; **B.05** `buildPostByIdQuery` params, write-key validation, slug-container
+  - `localize.ts` — **B.05** `toFieldValue` / `fromFieldValue` / `fromLocalizedRaw` + `localeList` / `primaryLocale` / `isMultiLocale` (single-locale plain value ⇄ multi-locale `{ [locale]: value }`; multi-locale storage shape provisional → M.01)
+  - `localize.test.ts` — **B.05** single- vs multi-locale round-trip tests
+  - `portable-text.ts` — **B.05** `textToPortableText` / `portableTextToText` / `isEditableBody` (plain text ⇄ minimal Portable Text; the data-loss guard — rich bodies flagged read-only)
+  - `portable-text.test.ts` — **B.05** round-trip + rich-content-rejection tests
 
 ## Planned (not yet created)
 
-- `src/app/(portal)/posts/new/`, `posts/[id]/` — create / edit (B.05)
-- `src/app/api/*` — server route handlers, **if/when needed** (mutations land as Server Actions/handlers in B.05+; B.04 added none — the read is a Server Component data call)
-- `src/lib/config/` locale helpers + `src/components/editor/` — the config-driven post editor (B.05)
-- `next.config.ts` image `remotePatterns` for `cdn.sanity.io` — B.06; `revalidate_url` call on publish — B.07
+- `src/app/api/*` — server route handlers, **if/when needed** (mutations landed as Server Actions in B.05 — `posts/actions.ts` — not route handlers; none needed so far)
+- `src/components/editor/` image upload control + `next.config.ts` image `remotePatterns` for `cdn.sanity.io` — B.06; `revalidate_url` call on publish — B.07
