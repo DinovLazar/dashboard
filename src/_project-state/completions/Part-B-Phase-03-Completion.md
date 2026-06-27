@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-27 · **Outcome (one line):** The portal now has its secure "address book" — three RLS-protected Supabase tables that map each login to exactly one client and store that client's Sanity token **encrypted** (AES-256-GCM) so no browser session can ever read it — plus the server-side crypto module, the service-role client, and operator seed/verify tooling.
 
-- **Branch / PR:** `b03-registry` → PR to `main` (see §7 for the B.02-not-yet-merged branching note).
+- **Branch / PR:** `b03-registry` → [PR #3](https://github.com/DinovLazar/dashboard/pull/3), **base `b02-supabase-auth`** (stacked — B.02 isn't merged to `main` yet; see §7 for the merge-order note).
 - **Live status:** code-complete and **locally verified** (crypto unit tests, build, and a real-Postgres RLS isolation simulation all pass). Applying the schema to the real Supabase and running the end-to-end verify is an **operator step** (runbook provided) — the agent has no access to the real project.
 
 ---
@@ -48,7 +48,7 @@ The portal can now remember **which client each login belongs to**, and it keeps
 - ⚠️ **As service-role, the seeded `client_secrets` row decrypts back to the dummy token** — proven in two places locally: the crypto round-trip unit test, and the pglite sim's service_role read. The real-Supabase decrypt check is part of the same operator `verify:registry` run (also pending).
 - ✅ **`.env.local.example` documents the two new vars (names only); `npm run build` passes; no secret values / no `NEXT_PUBLIC_*` secret** — `.env.local.example` documents `SUPABASE_SERVICE_ROLE_KEY` + `SANITY_TOKEN_ENC_KEY` (placeholders only). `npm run build` passes (TypeScript clean; 5 routes; `ƒ` for `/login` and `/posts`). `npm run lint` clean. No secret in the tree or history.
 - ✅ **`docs/runbooks/registry-apply.md` exists and reproduces the verification** — step-by-step: paste SQL → confirm test user → fill `.env.local` → seed → verify, with the expected PASS output.
-- ✅ **`current-state.md`, `file-map.md`, `00_stack-and-config.md` updated** — all three updated to end-of-B.03. ⚠️ **Landed via PR to `main`** — PR opened; merge is gated on the B.02 branching decision (§7).
+- ✅ **`current-state.md`, `file-map.md`, `00_stack-and-config.md` updated** — all three updated to end-of-B.03. ⚠️ **Landed via PR** — [PR #3](https://github.com/DinovLazar/dashboard/pull/3) opened (stacked on `b02-supabase-auth`); merge to `main` is gated on the B.02 branching decision (§7).
 
 ## 3. Decisions I made during this phase
 
