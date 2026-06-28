@@ -1,14 +1,20 @@
 import { ChevronDown, LogOut } from "lucide-react"
+import { signOut } from "@/app/(portal)/actions"
 import { Button } from "@/components/ui/button"
 import { Wordmark } from "./wordmark"
 
 function initialsFor(label: string) {
-  return label
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((word) => word[0]?.toUpperCase() ?? "")
-    .join("")
+  // Labels can be a person/company name ("Demo Client") or, until the client
+  // registry lands, an email ("you@company.com"). Derive up to two initials
+  // from whichever shape we get.
+  const base = label.includes("@") ? label.split("@")[0] : label
+  const words = base.split(/[\s._-]+/).filter(Boolean)
+
+  if (words.length >= 2) {
+    return (words[0][0] + words[1][0]).toUpperCase()
+  }
+
+  return base.slice(0, 2).toUpperCase()
 }
 
 /**
@@ -16,9 +22,9 @@ function initialsFor(label: string) {
  * (the sidebar is hidden there); on every size it shows the signed-in client's
  * label and a sign-out affordance on the right.
  *
- * `clientLabel` is a presentational slot — in B.02 it is populated from the
- * authenticated Supabase session, and sign-out is wired to end that session.
- * Today the button is intentionally inert.
+ * `clientLabel` comes from the authenticated Supabase session (the user's email
+ * until the per-client registry lands in B.03). Sign-out posts to a Server
+ * Action that ends the session and returns to `/login`.
  */
 export function PortalTopbar({ clientLabel }: { clientLabel: string }) {
   return (
@@ -39,15 +45,17 @@ export function PortalTopbar({ clientLabel }: { clientLabel: string }) {
           <ChevronDown className="size-4 text-muted-foreground" aria-hidden />
         </div>
 
-        <Button
-          type="button"
-          variant="ghost"
-          className="h-9 text-muted-foreground hover:text-foreground"
-          aria-label="Sign out"
-        >
-          <LogOut className="size-4" aria-hidden />
-          <span className="hidden sm:inline">Sign out</span>
-        </Button>
+        <form action={signOut}>
+          <Button
+            type="submit"
+            variant="ghost"
+            className="h-9 text-muted-foreground hover:text-foreground"
+            aria-label="Sign out"
+          >
+            <LogOut className="size-4" aria-hidden />
+            <span className="hidden sm:inline">Sign out</span>
+          </Button>
+        </form>
       </div>
     </header>
   )

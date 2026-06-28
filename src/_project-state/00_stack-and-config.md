@@ -1,8 +1,8 @@
 # Stack and Configuration
 
-The real, verified stack for the Vertex Consulting client blog portal as of **Phase B.01** (2026-06-26). Append changes as they land; keep it factual.
+The real, verified stack for the Vertex Consulting client blog portal as of **Phase B.02** (2026-06-26). Append changes as they land; keep it factual.
 
-**Build status: scaffolded and building clean.** `npm run build` passes; the branded shell deploys to a Vercel preview at https://dashboard-six-iota-33.vercel.app.
+**Build status: building clean with auth live.** `npm run build` passes and `npm run lint` is clean; `/login` and `/posts` are dynamic (`ƒ`), and the proxy is active.
 
 ## Framework and runtime
 
@@ -25,10 +25,12 @@ The real, verified stack for the Vertex Consulting client blog portal as of **Ph
 | `tailwind-merge` | `^3.5.0` | className merge (`cn`) |
 | `tw-animate-css` | `^1.4.0` | animation utilities (imported in `globals.css`) |
 | `lucide-react` | `^1.8.0` | icon set (`base-nova` icon library) |
+| `@supabase/ssr` | `0.12.0` (exact) | **B.02** — server-side auth for Next.js App Router (browser/server/proxy clients, cookie-based sessions) |
+| `@supabase/supabase-js` | `2.108.2` (exact) | **B.02** — Supabase JS client (`@supabase/ssr` peer; satisfies its `^2.108.0` requirement) |
 
-All versions mirror the Vertex marketing site exactly, except `@base-ui/react` (Vertex pins `^1.4.0`; npm resolved `^1.6.0` here — compatible, satisfies Vertex's range).
+All versions mirror the Vertex marketing site exactly, except `@base-ui/react` (Vertex pins `^1.4.0`; npm resolved `^1.6.0` here — compatible, satisfies Vertex's range). The two `@supabase/*` packages are pinned **exact** (no caret), matching the `next`/`react` pinning convention.
 
-**Intentionally NOT yet added** (arrive in the phase that needs them): `@supabase/supabase-js` + `@supabase/ssr` (B.02), `@sanity/client` / `next-sanity` (B.04), a portable-text editor (B.05), `resend` (optional). No 3D/animation libraries (the portal has no public marketing surface).
+**Intentionally NOT yet added** (arrive in the phase that needs them): `@sanity/client` / `next-sanity` (B.04), a portable-text editor (B.05), `resend` (optional). The Supabase **service-role key** and any token-encryption library are **not** added in B.02 — they arrive server-side in B.03. No 3D/animation libraries (the portal has no public marketing surface).
 
 ## Dependencies (dev) — actual
 
@@ -39,10 +41,12 @@ All versions mirror the Vertex marketing site exactly, except `@base-ui/react` (
 - `dev` → `next dev` · `build` → `next build` · `start` → `next start` · `lint` → `eslint`
 - (A test runner is selected at B.04 when the cross-tenant isolation test lands.)
 
-## Config files (present after B.01)
+## Config files (present after B.02)
 
 - `tsconfig.json` — path alias `@/*` → `./src/*` (mirrors Vertex)
-- `next.config.ts` — minimal/empty for B.01 (no i18n, no image remotePatterns yet)
+- `src/proxy.ts` — **B.02** Next.js 16 proxy (renamed successor to `middleware.ts`): session refresh + auth redirect; `config.matcher` excludes `_next/static`, `_next/image`, and common static assets
+- `.env.local.example` — **B.02** value-free template for the two browser-safe Supabase vars (tracked via the `!.env.local.example` allowlist in `.gitignore`)
+- `next.config.ts` — minimal/empty (no i18n, no image remotePatterns yet)
 - `postcss.config.mjs` — `@tailwindcss/postcss` only (Tailwind v4, CSS-first; **no `tailwind.config.js`**)
 - `eslint.config.mjs` — flat config extending `eslint-config-next` core-web-vitals + typescript
 - `components.json` — shadcn: style `base-nova`, base color `neutral`, CSS vars on, css `src/app/globals.css`, lucide icons, RSC on
@@ -57,10 +61,13 @@ All versions mirror the Vertex marketing site exactly, except `@base-ui/react` (
 - Dark-only: `html { color-scheme: dark }` + `<html class="dark" data-theme="dark">`. No light palette, no theme toggle, no division system (all marketing-site-only machinery was intentionally dropped).
 - Fonts via `next/font/google` in `src/app/layout.tsx`: **Archivo** → `--font-heading`, **Source Serif 4** → `--font-body` (latin + latin-ext subsets). Buttons + nav chrome use `--font-heading` (Archivo) to match Vertex's CTA language.
 
-## Environment variables — intended (NEVER commit real values; repo is public)
+## Environment variables — (NEVER commit real values; repo is public)
 
-None required for B.01 (no integrations wired yet). Coming later, all configured in Vercel/Supabase env, never in the repo:
-- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (client-safe) — B.02
+**Required now (B.02)** — browser-safe, set in `.env.local` locally and in Vercel (Preview/Production). Both are `NEXT_PUBLIC_*` on purpose (protected by Supabase RLS); see `.env.local.example`:
+- `NEXT_PUBLIC_SUPABASE_URL` — the Supabase project URL.
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` — the browser-safe **publishable** key. (This is the current Supabase name for the client key; the older docs called it the "anon" key. The portal reads only this name.)
+
+**Coming later** — all configured in Vercel/Supabase env, never in the repo:
 - `SUPABASE_SERVICE_ROLE_KEY` — server-only — B.03
 - A server-only key for encrypting/decrypting per-client Sanity tokens at rest — B.03
 - Per-client Sanity **Editor** tokens — server-only secrets, stored encrypted, never `NEXT_PUBLIC_*`, never logged — M.01
