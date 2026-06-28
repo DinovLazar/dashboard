@@ -1,6 +1,6 @@
 # File Map — Dashboard (Vertex client blog portal)
 
-Where things live. **Build status: auth + registry + secure per-tenant Sanity read AND write path + featured-image upload — the config-driven editor (Phase B.06 complete).** Real paths below; every phase updates this file as files land.
+Where things live. **Build status: auth + registry + secure per-tenant Sanity read AND write path + featured-image upload — the config-driven editor, now accessibility-polished with offline axe tests (Phase B.08 complete; B.07 publish-refresh decision is docs-only).** Real paths below; every phase updates this file as files land.
 
 ## Repo root
 
@@ -9,8 +9,8 @@ Where things live. **Build status: auth + registry + secure per-tenant Sanity re
 - `AGENTS.md` — agent operating rules + the security boundary (paths point at `src/_project-state/`)
 - `.gitignore` — copied from Vertex (ignores `.env*`, `.vercel`, `.next/`)
 - `.env.local.example` — value-free template: browser-safe Supabase vars (B.02) + the two server-only secrets and the verify-script test creds (B.03); copy to `.env.local` (gitignored) and fill in
-- `package.json`, `tsconfig.json`, `next.config.ts`, `components.json`, `postcss.config.mjs`, `eslint.config.mjs` — config (B.01); `package.json` gains `test`/`seed`/`verify` scripts + `vitest`/`tsx`/`server-only` (B.03); **B.04** adds `@sanity/client` `7.22.1` (exact); **B.06** is the first `next.config.ts` change since B.01 (image `remotePatterns` for `cdn.sanity.io` + `experimental.serverActions.bodySizeLimit: '5mb'`) — no new deps
-- `vitest.config.ts` — **B.03** Vitest config (Node env; aliases `server-only`/`client-only` → the no-op stub); **B.04** also aliases `@` → `./src` so the cross-importing `@/lib/...` modules resolve under Vitest
+- `package.json`, `tsconfig.json`, `next.config.ts`, `components.json`, `postcss.config.mjs`, `eslint.config.mjs` — config (B.01); `package.json` gains `test`/`seed`/`verify` scripts + `vitest`/`tsx`/`server-only` (B.03); **B.04** adds `@sanity/client` `7.22.1` (exact); **B.06** is the first `next.config.ts` change since B.01 (image `remotePatterns` for `cdn.sanity.io` + `experimental.serverActions.bodySizeLimit: '5mb'`) — no new deps; **B.08** adds **dev-only** a11y test deps, pinned exact (`jsdom` `29.1.1`, `@testing-library/react` `16.3.2`, `@testing-library/dom` `10.4.1`, `@testing-library/user-event` `14.6.1`, `jest-axe` `10.0.0`, `@types/jest-axe` `3.5.9`) — **no runtime dep, no env var, no `next.config.ts` change**
+- `vitest.config.ts` — **B.03** Vitest config (Node env; aliases `server-only`/`client-only` → the no-op stub); **B.04** also aliases `@` → `./src` so the cross-importing `@/lib/...` modules resolve under Vitest; **B.08** splits into two projects sharing those aliases — **unit** (`*.test.ts`, Node) and **a11y** (`*.test.tsx`, jsdom + `test/setup/a11y-setup.ts`)
 - `.claude/launch.json` — local preview server config (dev + prod)
 - `docs/`, `briefs/`, `reports/`, `status/` — standard Vertex repo folders (B.01)
 - `scripts/`, `supabase/`, `test/` — **B.03** (see their own sections below)
@@ -44,9 +44,11 @@ Where things live. **Build status: auth + registry + secure per-tenant Sanity re
 
 - `migrations/20260627120000_registry.sql` — the registry schema: `clients`, `client_users`, `client_secrets` + RLS + the deny-all lockdown on `client_secrets`
 
-## test/  (B.03)
+## test/  (B.03, extended B.08)
 
 - `setup/server-guard-stub.ts` — no-op stand-in for the `server-only`/`client-only` marker packages, used only by Vitest + the tsx scripts (never the real Next build)
+- `setup/a11y-setup.ts` — **B.08** setup for the jsdom **a11y** Vitest project only: registers jest-axe's `toHaveNoViolations` on Vitest's `expect`, RTL `cleanup` after each test, and inert stand-ins for the browser APIs base-ui's dialog touches (`matchMedia`/`ResizeObserver`/`IntersectionObserver`/`scrollIntoView`) + a null `<canvas>` 2D context to silence axe's contrast probe
+- `setup/vitest-axe.d.ts` — **B.08** TypeScript augmentation teaching Vitest's `Assertion` the `toHaveNoViolations` matcher (`@types/jest-axe` only augments Jest)
 
 ## src/_project-state/  (canonical project memory)
 
@@ -63,30 +65,38 @@ Where things live. **Build status: auth + registry + secure per-tenant Sanity re
   - `Part-B-Phase-04-Completion.md` — **B.04** report
   - `Part-B-Phase-05-Completion.md` — **B.05** report
   - `Part-B-Phase-06-Completion.md` — **B.06** report
+  - `Part-B-Phase-07-Completion.md` — **B.07** report
+  - `Part-B-Phase-08-Completion.md` — **B.08** report
 
 ## src/app/  (Next.js App Router)
 
 - `layout.tsx` — root layout: `next/font` (Archivo + Source Serif 4), metadata, dark `<html>`, `<body>`
-- `globals.css` — Vertex brand tokens + shadcn `base-nova` bridge + base layer + brand utilities
+- `globals.css` — Vertex brand tokens + shadcn `base-nova` bridge + base layer + brand utilities; **B.08:** `--muted-foreground` 45%→58% and `--destructive` 60%→66% (lightness-only AA-contrast fixes, same grayscale/hue), a `prefers-reduced-motion` block, and a `.skip-link` utility
 - `page.tsx` — `/` → redirects to `/login`
 - `icon.svg` — favicon (the Vertex "V" mark)
 - `(auth)/login/page.tsx` — branded login (Server Component): redirects already-authed users to `/posts`, else renders `<LoginForm />` (**B.02**)
-- `(auth)/login/login-form.tsx` — **B.02** `'use client'` form: `useActionState(signIn)`, inline generic error, pending state, controlled email
+- `(auth)/login/login-form.tsx` — **B.02** `'use client'` form: `useActionState(signIn)`, inline generic error, pending state, controlled email; **B.08** the error is linked to both inputs via `aria-describedby`
+- `(auth)/login/login-form.test.tsx` — **B.08** offline axe + label assertions (mocks `./actions`)
 - `(auth)/login/actions.ts` — **B.02** `'use server'` `signIn` action (`signInWithPassword`; generic error; redirect to `/posts` on success)
-- `(portal)/layout.tsx` — authenticated-portal shell; **B.02 authoritative gate** (`getClaims()` → redirect anon to `/login`) + `export const dynamic = 'force-dynamic'`; **B.04:** top-bar label = resolved client label (best-effort via the `cache()`d `resolveTenant`, email fallback)
+- `(portal)/layout.tsx` — authenticated-portal shell; **B.02 authoritative gate** (`getClaims()` → redirect anon to `/login`) + `export const dynamic = 'force-dynamic'`; **B.04:** top-bar label = resolved client label (best-effort via the `cache()`d `resolveTenant`, email fallback); **B.08:** adds the skip-to-main link as the first focusable element + `<main id="main-content" tabIndex={-1}>`
 - `(portal)/actions.ts` — **B.02** `'use server'` `signOut` action (`signOut()` + redirect to `/login`)
-- `(portal)/posts/page.tsx` — **B.04** the per-tenant read path: resolves the tenant → `listPosts` → renders the client label + populated list, or the empty / not-linked / not-ready / read-error states. Computes a render-state object inside try/catch, renders JSX outside it (error-boundaries lint rule). **B.05:** both "New post" buttons are now links to `/posts/new`
+- `(portal)/posts/page.tsx` — **B.04** the per-tenant read path: resolves the tenant → `listPosts` → renders the client label + populated list, or the empty / not-linked / not-ready / read-error states. Computes a render-state object inside try/catch, renders JSX outside it (error-boundaries lint rule). **B.05:** both "New post" buttons are now links to `/posts/new`. **B.08:** the friendly states now render through the shared `MessageCard`; "New post" CTAs are ≥44px tall on mobile (`h-11 sm:h-9`)
+- `(portal)/posts/loading.tsx` — **B.08** route loading UI (`<LoadingState label="Loading your posts…">`)
+- `(portal)/posts/new/loading.tsx` — **B.08** route loading UI (`Loading the editor…`)
+- `(portal)/posts/[id]/loading.tsx` — **B.08** route loading UI (`Loading this post…`)
 - `(portal)/posts/actions.ts` — **B.05** `'use server'` mutating actions (`createPostAction` / `saveDraftAction` / `publishPostAction` / `deletePostAction`). Each **re-resolves the tenant** (`resolveTenant()`) — re-auth + re-authorize on every POST — parses per-locale fields from `FormData`, dispatches the matching `mutations.ts` function, `revalidatePath`s, and returns a generic non-leaking result or `redirect`s. `redirect()` is always outside the try/catch. **B.06** adds `uploadImageAction` (re-resolves → `uploadImage`, returns `ImageUploadState` with a friendly/non-leaking error) and the image tri-state in `parseFields` (hidden `image` vs `imageOriginal`; malformed asset id fails generically)
 - `(portal)/posts/new/page.tsx` — **B.05** create-mode editor page (Server Component): resolves the tenant for its config (labels/locales) → renders `<PostEditor mode="create">`; resolution failure → friendly not-linked / not-ready notice. **B.06** `emptyInitial` includes `image: { assetId: null, url: null }`
 - `(portal)/posts/[id]/page.tsx` — **B.05** edit-mode editor page (Server Component): `getPost(tenant, id)` → `<PostEditor mode="edit">` with the post's per-locale values + status; null → friendly not-found; read failure → friendly error. `params` is awaited (Next 16 async params). **B.06** passes `initial.image = detail.image`
 
 ## src/components/
 
-- `ui/` — shadcn `base-nova` primitives: `button.tsx`, `input.tsx`, `label.tsx`, `card.tsx`
-- `portal/` — shell pieces: `wordmark.tsx`, `portal-sidebar.tsx`, `portal-topbar.tsx` (**B.02:** sign-out wired to the `signOut` Server Action; `initialsFor` handles email labels), `portal-nav.tsx`; **B.04** `posts-list.tsx` — presentational post list (Server Component; takes only `PostSummary[]` — never the tenant/token; title + draft/published badge with an "edited" hint + relative last-updated time); **B.05:** each row is now a `Link` to `/posts/[id]`
-- `editor/` — **B.05/B.06** the config-driven editor:
-  - `post-editor.tsx` — `'use client'` form: per-locale headline/summary/body + slug, locale tabs when multi-locale, Save-draft / Publish (shared form via `formAction`) + Delete-with-confirm. Uses `useActionState`; receives **only** serializable non-secret props (locales + per-locale values + status + image asset id/URL) — never the tenant/token; imports the Server Actions directly. **B.06** the `FeaturedImageField` control: pick → upload (own `useTransition` → `uploadImageAction`) → `next/image` preview → Remove/Replace; the file input is unnamed (bytes never ride with Save/Publish); hidden `image`/`imageOriginal` inputs carry the intent into the main form
-  - `editor-message.tsx` — presentational Server Component for the editor pages' friendly not-linked / not-ready / not-found / read-error states (with a "Back to posts" link); never receives a tenant/token/raw error
+- `ui/` — shadcn `base-nova` primitives: `button.tsx`, `input.tsx`, `label.tsx`, `card.tsx`; **B.08** `alert-dialog.tsx` (`'use client'`; wraps `@base-ui/react` Alert Dialog → `role="alertdialog"` + `aria-modal`, focus trap, Escape-to-close, return-focus-to-trigger; imports only `@base-ui/react/alert-dialog` + `cn` — no server module)
+- `portal/` — shell pieces: `wordmark.tsx`, `portal-sidebar.tsx`, `portal-topbar.tsx` (**B.02:** sign-out wired to the `signOut` Server Action; `initialsFor` handles email labels; **B.08:** removed the misleading non-interactive account chevron) + **B.08** `portal-topbar.test.tsx` (post-audit: offline axe + the genuinely icon-only Sign-out control's accessible name via `aria-label` + the account chip is non-interactive), `portal-nav.tsx`; **B.04** `posts-list.tsx` — presentational post list (Server Component; takes only `PostSummary[]` — never the tenant/token; title + draft/published badge with an "edited" hint + relative last-updated time; **B.08:** dropped the `/70` alpha on the "· Edited" hint for AA contrast) + **B.08** `posts-list.test.tsx` (offline axe, populated + empty + `LoadingState`); **B.05:** each row is now a `Link` to `/posts/[id]`; **B.08** `message-card.tsx` — the **shared** friendly-state card (icon + title + body, `headingLevel` 1|2) used by both the posts page states and `editor-message.tsx`; **B.08** `loading-state.tsx` — the branded `role="status"` loading skeleton used by the route `loading.tsx` boundaries
+- `editor/` — **B.05/B.06/B.08** the config-driven editor:
+  - `post-editor.tsx` — `'use client'` form: per-locale headline/summary/body + slug, locale tabs when multi-locale, Save-draft / Publish (shared form via `formAction`) + Delete-with-confirm. Uses `useActionState`; receives **only** serializable non-secret props (locales + per-locale values + status + image asset id/URL) — never the tenant/token; imports the Server Actions directly. **B.06** the `FeaturedImageField` control: pick → upload (own `useTransition` → `uploadImageAction`) → `next/image` preview → Remove/Replace; the file input is unnamed (bytes never ride with Save/Publish); hidden `image`/`imageOriginal` inputs carry the intent into the main form. **B.08** accessibility polish: a WAI-ARIA `LocaleTabs` (roving tabindex + arrow-key nav + `aria-controls`, panels stay mounted), `lang` on non-UI-language fields, visible pending verbs ("Saving…/Publishing…/Deleting…/Uploading image…") + `aria-busy` on every action button + a `role="status"` in-progress region per action (post-audit: the upload trigger's `aria-busy` + its `role="status"` line, and the delete dialog's `sr-only role="status"` region were added so all four match), the delete-confirm rebuilt on the `AlertDialog` primitive, ≥44px mobile tap targets (`h-11 sm:h-9`), and a focus ring on the "Back to posts" link
+  - `post-editor.test.tsx` — **B.08** offline axe (create / edit / multi-locale / with-image / no-image) + semantics (one h1, labels, `lang` on headline/summary/body, named icon-bearing buttons) + keyboard (tab roving, delete-dialog Escape + focus return) + **post-audit** pending-state proofs (image-upload & delete `aria-busy` + `role="status"` verb, via a held promise); mocks `@/app/(portal)/posts/actions` + `next/image`
+  - `editor-message.tsx` — presentational Server Component for the editor pages' friendly not-linked / not-ready / not-found / read-error states (with a "Back to posts" link); never receives a tenant/token/raw error; **B.08** renders through the shared `MessageCard` (heading level 1 — it *is* the page) and gives the back link a focus ring
+  - `editor-message.test.tsx` — **B.08** offline axe + heading-level assertions for `EditorMessage` (h1) and `MessageCard` (h2)
 
 ## src/lib/
 
@@ -125,4 +135,4 @@ Where things live. **Build status: auth + registry + secure per-tenant Sanity re
 ## Planned (not yet created)
 
 - `src/app/api/*` — server route handlers, **if/when needed** (mutations + the B.06 image upload landed as Server Actions in `posts/actions.ts` — not route handlers; none needed so far)
-- `revalidate_url` call on publish — **B.07** (call the client site's revalidate endpoint on publish; handle failure without losing the publish)
+- ~~`revalidate_url` call on publish~~ — **settled in B.07: the portal sends nothing on publish** (live-site refresh is delegated to each client's Sanity → site webhook; `revalidateUrl` is retained-but-unused). See `docs/runbooks/live-site-revalidation.md` and the 2026-06-28 Decisions entry. Per-client webhook enablement is **M.01**.
