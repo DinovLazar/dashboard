@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import Link from "next/link"
 import { AlertTriangle, FileText, Plus, Unplug } from "lucide-react"
 import { buttonVariants } from "@/components/ui/button"
+import { MessageCard } from "@/components/portal/message-card"
 import { PostsList } from "@/components/portal/posts-list"
 import { cn } from "@/lib/utils"
 import {
@@ -77,7 +78,7 @@ export default async function PostsPage() {
   if (state.kind === "not-linked") {
     return (
       <PostsShell label={null}>
-        <StateCard
+        <MessageCard
           icon={<Unplug className="size-6" />}
           title="No website connected yet"
           body="Your account isn't connected to a website yet. Contact Vertex and we'll link it to your blog so you can start writing."
@@ -89,7 +90,7 @@ export default async function PostsPage() {
   if (state.kind === "not-ready") {
     return (
       <PostsShell label={null}>
-        <StateCard
+        <MessageCard
           icon={<AlertTriangle className="size-6" />}
           title="Your site isn't ready yet"
           body="Your account is set up, but your blog connection needs attention. Please contact Vertex and we'll finish wiring it up."
@@ -101,7 +102,7 @@ export default async function PostsPage() {
   if (state.kind === "read-error") {
     return (
       <PostsShell label={state.label}>
-        <StateCard
+        <MessageCard
           icon={<AlertTriangle className="size-6" />}
           title="We couldn't load your posts"
           body="Something went wrong reaching your blog just now. Please refresh the page or try again in a moment."
@@ -113,29 +114,19 @@ export default async function PostsPage() {
   if (state.kind === "empty") {
     return (
       <PostsShell label={state.label}>
-        <div className="flex flex-col items-center justify-center gap-5 rounded-card border border-dashed border-border bg-surface/40 px-6 py-16 text-center">
-          <span
-            className="grid size-14 place-items-center rounded-full bg-secondary text-muted-foreground"
-            aria-hidden
-          >
-            <FileText className="size-6" />
-          </span>
-          <div className="flex max-w-sm flex-col gap-2">
-            <h2 className="text-h3 text-foreground">No posts yet</h2>
-            <p className="text-small text-muted-foreground">
-              Once the editor is connected, your blog posts will appear here.
-              You&rsquo;ll be able to create a post, save it as a draft, and
-              publish it to your live site.
-            </p>
-          </div>
+        <MessageCard
+          icon={<FileText className="size-6" />}
+          title="No posts yet"
+          body="Once the editor is connected, your blog posts will appear here. You’ll be able to create a post, save it as a draft, and publish it to your live site."
+        >
           <Link
             href="/posts/new"
-            className={cn(buttonVariants({ variant: "outline" }), "h-9")}
+            className={cn(buttonVariants({ variant: "outline" }), "h-11 sm:h-9")}
           >
             <Plus className="size-4" aria-hidden />
             New post
           </Link>
-        </div>
+        </MessageCard>
       </PostsShell>
     )
   }
@@ -174,7 +165,7 @@ function PostsShell({
           href="/posts/new"
           className={cn(
             buttonVariants({ variant: "default" }),
-            "h-9 self-start sm:self-auto",
+            "h-11 self-start sm:h-9 sm:self-auto",
           )}
         >
           <Plus className="size-4" aria-hidden />
@@ -183,32 +174,6 @@ function PostsShell({
       </div>
 
       {children}
-    </div>
-  )
-}
-
-/** A centered dashed card for the not-linked / not-ready / read-error states. */
-function StateCard({
-  icon,
-  title,
-  body,
-}: {
-  icon: React.ReactNode
-  title: string
-  body: string
-}) {
-  return (
-    <div className="flex flex-col items-center justify-center gap-5 rounded-card border border-dashed border-border bg-surface/40 px-6 py-16 text-center">
-      <span
-        className="grid size-14 place-items-center rounded-full bg-secondary text-muted-foreground"
-        aria-hidden
-      >
-        {icon}
-      </span>
-      <div className="flex max-w-sm flex-col gap-2">
-        <h2 className="text-h3 text-foreground">{title}</h2>
-        <p className="text-small text-muted-foreground">{body}</p>
-      </div>
     </div>
   )
 }

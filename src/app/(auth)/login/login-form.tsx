@@ -41,6 +41,7 @@ export function LoginForm() {
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           aria-invalid={state.error ? true : undefined}
+          aria-describedby={state.error ? "login-error" : undefined}
         />
       </div>
 
@@ -54,11 +55,13 @@ export function LoginForm() {
           placeholder="••••••••"
           required
           aria-invalid={state.error ? true : undefined}
+          aria-describedby={state.error ? "login-error" : undefined}
         />
       </div>
 
       {state.error ? (
         <p
+          id="login-error"
           role="alert"
           aria-live="polite"
           className="text-small text-destructive"

@@ -1,4 +1,4 @@
-import { ChevronDown, LogOut } from "lucide-react"
+import { LogOut } from "lucide-react"
 import { signOut } from "@/app/(portal)/actions"
 import { Button } from "@/components/ui/button"
 import { Wordmark } from "./wordmark"
@@ -32,6 +32,9 @@ export function PortalTopbar({ clientLabel }: { clientLabel: string }) {
       <Wordmark className="md:hidden" tag={null} />
 
       <div className="ml-auto flex items-center gap-2 md:gap-3">
+        {/* Non-interactive account display (the signed-in client's label). It is
+            not a menu, so it carries no menu affordance and is not a tab stop;
+            sign-out is the adjacent button. */}
         <div className="flex items-center gap-2.5 rounded-pill border border-border bg-card/60 py-1.5 pr-3 pl-1.5">
           <span
             className="grid size-7 place-items-center rounded-full bg-secondary text-micro font-semibold text-foreground"
@@ -42,7 +45,6 @@ export function PortalTopbar({ clientLabel }: { clientLabel: string }) {
           <span className="hidden text-small font-medium text-foreground sm:inline">
             {clientLabel}
           </span>
-          <ChevronDown className="size-4 text-muted-foreground" aria-hidden />
         </div>
 
         <form action={signOut}>

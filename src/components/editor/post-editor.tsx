@@ -25,6 +25,15 @@ import {
   type EditorActionState,
   type ImageUploadState,
 } from "@/app/(portal)/posts/actions"
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -170,7 +179,7 @@ export function PostEditor({
         <div className="flex flex-col gap-1.5">
           <Link
             href="/posts"
-            className="inline-flex w-fit items-center gap-1.5 text-small text-muted-foreground transition-colors hover:text-foreground"
+            className="focus-ring inline-flex w-fit items-center gap-1.5 rounded-sm text-small text-muted-foreground transition-colors hover:text-foreground"
           >
             <ArrowLeft className="size-3.5" aria-hidden />
             Back to posts
@@ -211,102 +220,98 @@ export function PostEditor({
         />
 
         {multi ? (
-          <div
-            role="tablist"
-            aria-label="Content language"
-            className="flex flex-wrap gap-1.5"
-          >
-            {localeList.map((loc) => {
-              const selected = loc === activeLocale
-              return (
-                <button
-                  key={loc}
-                  type="button"
-                  role="tab"
-                  aria-selected={selected}
-                  onClick={() => setActiveLocale(loc)}
-                  className={cn(
-                    buttonVariants({
-                      variant: selected ? "secondary" : "ghost",
-                      size: "sm",
-                    }),
-                  )}
-                >
-                  {localeName(loc)}
-                </button>
-              )
-            })}
-          </div>
+          <LocaleTabs
+            locales={localeList}
+            active={activeLocale}
+            onSelect={setActiveLocale}
+          />
         ) : null}
 
-        {localeList.map((loc) => (
-          <div
-            key={loc}
-            hidden={multi && loc !== activeLocale}
-            className="flex flex-col gap-6"
-          >
-            <Field
-              id={`title-${loc}`}
-              label="Headline"
-              hint={multi ? localeName(loc) : undefined}
+        {localeList.map((loc) => {
+          const langAttr = loc === "en" ? undefined : loc
+          return (
+            <div
+              key={loc}
+              // When multi-locale these groups are tab panels: each is associated
+              // with its tab and the inactive ones are `hidden` (removed from the
+              // a11y tree) — yet all stay mounted so a submit carries every locale.
+              role={multi ? "tabpanel" : undefined}
+              id={multi ? `locale-panel-${loc}` : undefined}
+              aria-labelledby={multi ? `locale-tab-${loc}` : undefined}
+              hidden={multi && loc !== activeLocale}
+              className="flex flex-col gap-6"
             >
-              <Input
+              <Field
                 id={`title-${loc}`}
-                name={`title.${loc}`}
-                defaultValue={initial.title[loc] ?? ""}
-                placeholder="Your post title"
-                autoComplete="off"
-              />
-            </Field>
-
-            <Field
-              id={`excerpt-${loc}`}
-              label="Summary"
-              hint={multi ? localeName(loc) : undefined}
-            >
-              <textarea
-                id={`excerpt-${loc}`}
-                name={`excerpt.${loc}`}
-                defaultValue={initial.excerpt[loc] ?? ""}
-                placeholder="A short summary shown in listings and previews."
-                rows={2}
-                className={textareaClass}
-              />
-            </Field>
-
-            <Field
-              id={`body-${loc}`}
-              label="Body"
-              hint={multi ? localeName(loc) : undefined}
-            >
-              {bodyEditable ? (
-                <textarea
-                  id={`body-${loc}`}
-                  name={`body.${loc}`}
-                  defaultValue={initial.body[loc] ?? ""}
-                  placeholder="Write your post. Separate paragraphs with a blank line."
-                  rows={14}
-                  className={textareaClass}
+                label="Headline"
+                hint={multi ? localeName(loc) : undefined}
+              >
+                <Input
+                  id={`title-${loc}`}
+                  name={`title.${loc}`}
+                  defaultValue={initial.title[loc] ?? ""}
+                  placeholder="Your post title"
+                  autoComplete="off"
+                  lang={langAttr}
                 />
-              ) : (
-                <div className="flex flex-col gap-2">
+              </Field>
+
+              <Field
+                id={`excerpt-${loc}`}
+                label="Summary"
+                hint={multi ? localeName(loc) : undefined}
+              >
+                <textarea
+                  id={`excerpt-${loc}`}
+                  name={`excerpt.${loc}`}
+                  defaultValue={initial.excerpt[loc] ?? ""}
+                  placeholder="A short summary shown in listings and previews."
+                  rows={2}
+                  className={textareaClass}
+                  lang={langAttr}
+                />
+              </Field>
+
+              <Field
+                id={`body-${loc}`}
+                label="Body"
+                hint={multi ? localeName(loc) : undefined}
+              >
+                {bodyEditable ? (
                   <textarea
                     id={`body-${loc}`}
+                    name={`body.${loc}`}
                     defaultValue={initial.body[loc] ?? ""}
-                    rows={10}
-                    disabled
+                    placeholder="Write your post. Separate paragraphs with a blank line."
+                    rows={14}
                     className={textareaClass}
+                    lang={langAttr}
                   />
-                  <p className="flex items-center gap-1.5 text-small text-accent-gold">
-                    <Lock className="size-3.5 shrink-0" aria-hidden />
-                    This post has rich formatting — edit its body in Sanity so
-                    nothing is lost.
-                  </p>
-                </div>
-              )}
-            </Field>
-          </div>
-        ))}
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    <textarea
+                      id={`body-${loc}`}
+                      defaultValue={initial.body[loc] ?? ""}
+                      rows={10}
+                      disabled
+                      className={textareaClass}
+                      lang={langAttr}
+                      aria-describedby={`body-rich-${loc}`}
+                    />
+                    <p
+                      id={`body-rich-${loc}`}
+                      className="flex items-center gap-1.5 text-small text-accent-gold"
+                    >
+                      <Lock className="size-3.5 shrink-0" aria-hidden />
+                      This post has rich formatting — edit its body in Sanity so
+                      nothing is lost.
+                    </p>
+                  </div>
+                )}
+              </Field>
+            </div>
+          )
+        })}
 
         <Field id="slug" label="URL slug" optional>
           <Input
@@ -353,17 +358,36 @@ export function PostEditor({
           </p>
         ) : null}
 
+        {/* Politely announces the in-progress action to assistive tech (the
+            visible spinner + button-label change cover sighted users; the
+            success / error messages above announce the result). */}
+        <p className="sr-only" role="status" aria-live="polite">
+          {savePending || createPending
+            ? "Saving your draft…"
+            : publishPending
+              ? "Publishing your post…"
+              : ""}
+        </p>
+
         <div className="flex flex-col gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap gap-2.5">
             <button
               type="submit"
               disabled={busy}
-              className={cn(buttonVariants({ variant: "outline", size: "lg" }))}
+              aria-busy={savePending || createPending}
+              className={cn(
+                buttonVariants({ variant: "outline", size: "lg" }),
+                "h-11 sm:h-9",
+              )}
             >
               {savePending || createPending ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden />
-              ) : null}
-              {mode === "create" ? "Save draft" : "Save draft"}
+                <>
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                  Saving…
+                </>
+              ) : (
+                "Save draft"
+              )}
             </button>
 
             {mode === "edit" ? (
@@ -371,14 +395,23 @@ export function PostEditor({
                 type="submit"
                 formAction={publishDispatch}
                 disabled={busy}
-                className={cn(buttonVariants({ variant: "default", size: "lg" }))}
+                aria-busy={publishPending}
+                className={cn(
+                  buttonVariants({ variant: "default", size: "lg" }),
+                  "h-11 sm:h-9",
+                )}
               >
                 {publishPending ? (
-                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                  <>
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                    Publishing…
+                  </>
                 ) : (
-                  <Send className="size-4" aria-hidden />
+                  <>
+                    <Send className="size-4" aria-hidden />
+                    Publish
+                  </>
                 )}
-                Publish
               </button>
             ) : null}
           </div>
@@ -417,6 +450,84 @@ function Field({
         ) : null}
       </div>
       {children}
+    </div>
+  )
+}
+
+/**
+ * Accessible locale tabs (B.08). A proper WAI-ARIA tablist: roving tabindex (only
+ * the selected tab is in the tab order), arrow-key navigation (Left/Right wrap,
+ * Home/End jump to ends), and each tab associated with its panel via
+ * `aria-controls` (the panels live in the form and carry the matching ids). The
+ * panels stay mounted regardless of which tab is active, so submitting still
+ * carries every locale's fields — selection only toggles visibility.
+ */
+function LocaleTabs({
+  locales,
+  active,
+  onSelect,
+}: {
+  locales: string[]
+  active: string
+  onSelect: (loc: string) => void
+}) {
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+
+  function onKeyDown(e: React.KeyboardEvent, index: number) {
+    const last = locales.length - 1
+    let next: number
+    switch (e.key) {
+      case "ArrowRight":
+        next = index === last ? 0 : index + 1
+        break
+      case "ArrowLeft":
+        next = index === 0 ? last : index - 1
+        break
+      case "Home":
+        next = 0
+        break
+      case "End":
+        next = last
+        break
+      default:
+        return
+    }
+    e.preventDefault()
+    const loc = locales[next]
+    onSelect(loc)
+    tabRefs.current[loc]?.focus()
+  }
+
+  return (
+    <div role="tablist" aria-label="Content language" className="flex flex-wrap gap-1.5">
+      {locales.map((loc, index) => {
+        const selected = loc === active
+        return (
+          <button
+            key={loc}
+            ref={(el) => {
+              tabRefs.current[loc] = el
+            }}
+            type="button"
+            role="tab"
+            id={`locale-tab-${loc}`}
+            aria-selected={selected}
+            aria-controls={`locale-panel-${loc}`}
+            tabIndex={selected ? 0 : -1}
+            onClick={() => onSelect(loc)}
+            onKeyDown={(e) => onKeyDown(e, index)}
+            className={cn(
+              buttonVariants({
+                variant: selected ? "secondary" : "ghost",
+                size: "sm",
+              }),
+              "h-9",
+            )}
+          >
+            {localeName(loc)}
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -576,84 +687,104 @@ function StatusPill({
       />
       {published ? "Published" : "Draft"}
       {hasUnpublishedEdits ? (
-        <span className="text-muted-foreground/70">· Unpublished edits</span>
+        <span className="text-muted-foreground">· Unpublished edits</span>
       ) : null}
     </span>
   )
 }
 
-/** Delete with a confirm step, in its own form/action. */
+/**
+ * Delete with a confirmation dialog. The confirm step is a real modal
+ * (`AlertDialog`) so it traps focus while open, closes on Escape, and returns
+ * focus to the "Delete" trigger on close — and, because it's modal, the rest of
+ * the editor is inert while the confirmation is up, so no conflicting control can
+ * be operated mid-delete. The actual delete is the same Server Action as before;
+ * on success it redirects to the list, on failure it shows a non-leaking error
+ * inside the dialog.
+ */
 function DeletePost({ id, disabled }: { id: string; disabled: boolean }) {
   const [state, dispatch, pending] = useActionState(
     deletePostAction,
     INITIAL_STATE,
   )
-  const [confirming, setConfirming] = useState(false)
+  const [open, setOpen] = useState(false)
 
   return (
-    <div className="flex flex-col gap-2 rounded-card border border-border bg-card/30 px-4 py-4 sm:px-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-col gap-0.5">
-          <h2 className="text-small font-medium text-foreground">Delete post</h2>
-          <p className="text-micro text-muted-foreground">
-            Permanently removes this post (draft and published) from your site.
-          </p>
-        </div>
+    <div className="flex flex-col gap-3 rounded-card border border-border bg-card/30 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+      <div className="flex flex-col gap-0.5">
+        <h2 className="text-small font-medium text-foreground">Delete post</h2>
+        <p className="text-micro text-muted-foreground">
+          Permanently removes this post (draft and published) from your site.
+        </p>
+      </div>
 
-        <form action={dispatch} className="flex items-center gap-2">
-          <input type="hidden" name="id" value={id} readOnly />
-          {confirming ? (
-            <>
+      <AlertDialog open={open} onOpenChange={setOpen}>
+        <AlertDialogTrigger
+          disabled={disabled}
+          className={cn(
+            buttonVariants({ variant: "destructive", size: "lg" }),
+            "h-11 self-start sm:h-9 sm:self-auto",
+          )}
+        >
+          <Trash2 className="size-4" aria-hidden />
+          Delete
+        </AlertDialogTrigger>
+
+        <AlertDialogContent>
+          <AlertDialogTitle>Delete this post?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This permanently removes the post — both its draft and published
+            versions — from your site. This can&rsquo;t be undone.
+          </AlertDialogDescription>
+
+          <form action={dispatch}>
+            <input type="hidden" name="id" value={id} readOnly />
+            <AlertDialogFooter>
+              <AlertDialogCancel
+                disabled={pending}
+                className={cn(
+                  buttonVariants({ variant: "ghost", size: "lg" }),
+                  "h-11 sm:h-9",
+                )}
+              >
+                Cancel
+              </AlertDialogCancel>
               <button
                 type="submit"
-                disabled={pending || disabled}
+                disabled={pending}
+                aria-busy={pending}
                 className={cn(
                   buttonVariants({ variant: "destructive", size: "lg" }),
+                  "h-11 sm:h-9",
                 )}
               >
                 {pending ? (
-                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                  <>
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                    Deleting…
+                  </>
                 ) : (
-                  <Trash2 className="size-4" aria-hidden />
+                  <>
+                    <Trash2 className="size-4" aria-hidden />
+                    Delete post
+                  </>
                 )}
-                Confirm delete
               </button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="lg"
-                onClick={() => setConfirming(false)}
-                disabled={pending}
-              >
-                Cancel
-              </Button>
-            </>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setConfirming(true)}
-              disabled={disabled}
-              className={cn(
-                buttonVariants({ variant: "destructive", size: "lg" }),
-              )}
-            >
-              <Trash2 className="size-4" aria-hidden />
-              Delete
-            </button>
-          )}
-        </form>
-      </div>
+            </AlertDialogFooter>
+          </form>
 
-      {state.error ? (
-        <p
-          role="alert"
-          aria-live="polite"
-          className="flex items-center gap-2 text-small text-destructive"
-        >
-          <AlertTriangle className="size-4 shrink-0" aria-hidden />
-          {state.error}
-        </p>
-      ) : null}
+          {state.error ? (
+            <p
+              role="alert"
+              aria-live="polite"
+              className="flex items-center gap-2 text-small text-destructive"
+            >
+              <AlertTriangle className="size-4 shrink-0" aria-hidden />
+              {state.error}
+            </p>
+          ) : null}
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

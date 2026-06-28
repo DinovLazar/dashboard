@@ -67,7 +67,7 @@ function StatusBadge({
       />
       {published ? "Published" : "Draft"}
       {hasUnpublishedEdits ? (
-        <span className="text-muted-foreground/70">· Edited</span>
+        <span className="text-muted-foreground">· Edited</span>
       ) : null}
     </span>
   )

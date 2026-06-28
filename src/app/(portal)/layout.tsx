@@ -53,6 +53,13 @@ export default async function PortalLayout({
 
   return (
     <div className="flex min-h-screen">
+      {/* Skip link — the first focusable element, so a keyboard or screen-reader
+          user can jump straight past the sidebar/top-bar to the page content
+          (WCAG 2.4.1). Hidden until focused (see `.skip-link` in globals.css). */}
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
+
       <PortalSidebar />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -63,7 +70,13 @@ export default async function PortalLayout({
           <PortalNav orientation="horizontal" />
         </div>
 
-        <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 md:px-8 md:py-10">
+        {/* `tabIndex={-1}` lets the skip link move focus here without making the
+            container a normal tab stop. */}
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 outline-none md:px-8 md:py-10"
+        >
           {children}
         </main>
       </div>
