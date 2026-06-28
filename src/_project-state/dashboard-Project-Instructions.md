@@ -60,6 +60,8 @@ These are settled. Details and dates are in `dashboard-Decisions.md`; the short 
            so the client's live website refreshes.
 ```
 
+> **Revised 2026-06-28 (B.07):** revalidation is Sanity-webhook-driven; the portal sends nothing on publish (the diagram's last step is delegated to each client's Sanity → site webhook) and holds no revalidation secret — see the Decisions log (2026-06-28) and `docs/runbooks/live-site-revalidation.md`.
+
 The **server-side lookup + ownership check** is the heart of the whole thing. Get it right and tenants are isolated; get it wrong and one client can edit another's site.
 
 ---

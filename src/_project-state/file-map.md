@@ -24,6 +24,7 @@ Where things live. **Build status: auth + registry + secure per-tenant Sanity re
 - `README.md` — knowledge-base guide
 - `runbooks/ai-review-setup.md` — CodeRabbit + Codex setup (owner one-time step)
 - `runbooks/registry-apply.md` — **B.03** operator runbook: apply the schema SQL, create/confirm the test user, fill `.env.local`, run seed + verify
+- `runbooks/live-site-revalidation.md` — **B.07** operator runbook: how a publish refreshes the client's live site (Sanity → site webhook, no portal call), each client site's `/api/revalidate` + `SANITY_REVALIDATE_SECRET` precondition, the once-per-client manage.sanity.io webhook setup (draft-excluding GROQ filter + projection), verification steps, per-client status table
 - `architecture/`, `workflows/`, `integrations/` — `.gitkeep` placeholders for later phases
 
 ## briefs/ · reports/ · status/

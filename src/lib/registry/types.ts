@@ -38,7 +38,17 @@ export interface TenantConfig {
   fieldMap: TenantFieldMap
   /** Content locales, e.g. ["en","mk"] or ["en","es"]. */
   locales: string[]
-  /** The client site's own revalidate endpoint, called on publish (B.07). */
+  /**
+   * The client site's own revalidate endpoint (from `clients.revalidate_url`).
+   *
+   * **Intentionally unused by the portal** (decision 2026-06-28, B.07): live-site
+   * refresh on publish is driven by each client's **Sanity → site webhook**, not by
+   * an outbound call from the portal — so the portal sends nothing on publish and
+   * holds no revalidation secret. This field (and its `clients.revalidate_url`
+   * column) are retained, not removed, so a later switch to a portal-initiated call
+   * needs no schema change. See `dashboard-Decisions.md` (2026-06-28) and
+   * `docs/runbooks/live-site-revalidation.md`.
+   */
   revalidateUrl: string | null
 }
 
