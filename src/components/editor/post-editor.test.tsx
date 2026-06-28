@@ -39,6 +39,7 @@ vi.mock("next/image", () => ({
 }))
 
 import { PostEditor, type PostEditorProps } from "./post-editor"
+import { deletePostAction, uploadImageAction } from "@/app/(portal)/posts/actions"
 
 // See posts-list.test.tsx for why axe is scoped to the WCAG 2.1 A/AA tags.
 const WCAG_AA = {
@@ -153,14 +154,21 @@ describe("PostEditor — semantics", () => {
 
   it("tags non-UI-language fields with the correct lang attribute", () => {
     render(<PostEditor {...editMultiLocale} />)
-    // The Macedonian headline carries lang="mk"; English fields carry none.
+    // The Macedonian content fields — headline, summary, AND body — carry
+    // lang="mk" so a screen reader switches voice; English fields carry none.
     const mkTitle = document.querySelector<HTMLInputElement>('input[name="title.mk"]')
+    const mkExcerpt = document.querySelector<HTMLTextAreaElement>('textarea[name="excerpt.mk"]')
+    const mkBody = document.querySelector<HTMLTextAreaElement>('textarea[name="body.mk"]')
     const enTitle = document.querySelector<HTMLInputElement>('input[name="title.en"]')
+    const enBody = document.querySelector<HTMLTextAreaElement>('textarea[name="body.en"]')
     expect(mkTitle?.getAttribute("lang")).toBe("mk")
+    expect(mkExcerpt?.getAttribute("lang")).toBe("mk")
+    expect(mkBody?.getAttribute("lang")).toBe("mk")
     expect(enTitle?.getAttribute("lang")).toBeNull()
+    expect(enBody?.getAttribute("lang")).toBeNull()
   })
 
-  it("gives the icon-only intent buttons discernible names", () => {
+  it("gives icon-bearing action buttons discernible names", () => {
     render(<PostEditor {...editNoImage} />)
     expect(screen.getByRole("button", { name: "Save draft" })).toBeTruthy()
     expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy()
@@ -230,5 +238,68 @@ describe("PostEditor — delete confirmation (keyboard + focus)", () => {
       expect(screen.queryByRole("alertdialog")).toBeNull(),
     )
     await waitFor(() => expect(document.activeElement).toBe(trigger))
+  })
+})
+
+describe("PostEditor — pending states announce to assistive tech", () => {
+  it("marks the image upload busy and announces it via a status region", async () => {
+    const user = userEvent.setup()
+    // Hold the upload promise open so the pending UI is observable, then settle
+    // it so the transition unwinds cleanly before unmount.
+    let resolveUpload: (v: {
+      ok: boolean
+      assetId: string | null
+      url: string | null
+      error: string | null
+    }) => void = () => {}
+    vi.mocked(uploadImageAction).mockImplementationOnce(
+      () => new Promise((res) => (resolveUpload = res)),
+    )
+
+    render(<PostEditor {...editNoImage} />)
+    const fileInput = screen.getByLabelText("Featured image")
+    await user.upload(
+      fileInput,
+      new File(["x"], "photo.png", { type: "image/png" }),
+    )
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Choose image" }).getAttribute("aria-busy"),
+      ).toBe("true"),
+    )
+    const status = await screen.findByText("Uploading image…")
+    expect(status.getAttribute("role")).toBe("status")
+
+    resolveUpload({ ok: false, assetId: null, url: null, error: null })
+    await waitFor(() =>
+      expect(screen.queryByText("Uploading image…")).toBeNull(),
+    )
+  })
+
+  it("marks delete busy and announces it via an sr-only status region", async () => {
+    const user = userEvent.setup()
+    let resolveDelete: (v: { ok: boolean; error: string | null }) => void = () => {}
+    vi.mocked(deletePostAction).mockImplementationOnce(
+      () => new Promise((res) => (resolveDelete = res)),
+    )
+
+    render(<PostEditor {...editNoImage} />)
+    await user.click(screen.getByRole("button", { name: /^delete$/i }))
+    await screen.findByRole("alertdialog")
+    await user.click(screen.getByRole("button", { name: "Delete post" }))
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Deleting…" }).getAttribute("aria-busy"),
+      ).toBe("true"),
+    )
+    const status = await screen.findByText("Deleting your post…")
+    expect(status.getAttribute("role")).toBe("status")
+
+    resolveDelete({ ok: false, error: null })
+    await waitFor(() =>
+      expect(screen.queryByText("Deleting your post…")).toBeNull(),
+    )
   })
 })

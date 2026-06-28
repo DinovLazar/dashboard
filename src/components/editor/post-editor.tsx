@@ -609,6 +609,7 @@ function FeaturedImageField({
           size="sm"
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled}
+          aria-busy={uploadPending}
         >
           {uploadPending ? (
             <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -645,6 +646,7 @@ function FeaturedImageField({
 
       {uploadPending ? (
         <p
+          role="status"
           aria-live="polite"
           className="flex items-center gap-2 text-small text-muted-foreground"
         >
@@ -772,6 +774,14 @@ function DeletePost({ id, disabled }: { id: string; disabled: boolean }) {
               </button>
             </AlertDialogFooter>
           </form>
+
+          {/* Announces the in-progress delete to assistive tech (the visible
+              spinner + button-label change cover sighted users; the error below
+              announces a failure; success redirects to the list). Mirrors the
+              main form's sr-only status region for Save/Publish. */}
+          <p className="sr-only" role="status" aria-live="polite">
+            {pending ? "Deleting your post…" : ""}
+          </p>
 
           {state.error ? (
             <p
