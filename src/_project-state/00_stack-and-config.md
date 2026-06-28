@@ -1,8 +1,8 @@
 # Stack and Configuration
 
-The real, verified stack for the Vertex Consulting client blog portal as of **Phase B.03** (2026-06-27). Append changes as they land; keep it factual.
+The real, verified stack for the Vertex Consulting client blog portal as of **Phase B.04** (2026-06-27). Append changes as they land; keep it factual.
 
-**Build status: building clean with auth + the registry data layer.** `npm run build` passes, `npm run lint` is clean, and `npm test` is green (10 crypto unit tests). The Supabase registry schema (three tables + RLS) lives in `supabase/migrations/`; the encrypted-token crypto module and the service-role client are in place. `/login` and `/posts` are dynamic (`ƒ`), and the proxy is active.
+**Build status: building clean with auth + the registry data layer + the secure per-tenant Sanity read path.** `npm run build` passes, `npm run lint` is clean, and `npm test` is green (**35 tests**: 10 crypto + the B.04 cross-tenant isolation, read-path reduce, and field-map injection-guard suites). The Supabase registry schema (three tables + RLS) lives in `supabase/migrations/`; the encrypted-token crypto module, the service-role client, the tenant resolver, and the per-tenant Sanity read path are in place. `/login` and `/posts` are dynamic (`ƒ`), and the proxy is active.
 
 ## Framework and runtime
 
@@ -27,11 +27,12 @@ The real, verified stack for the Vertex Consulting client blog portal as of **Ph
 | `lucide-react` | `^1.8.0` | icon set (`base-nova` icon library) |
 | `@supabase/ssr` | `0.12.0` (exact) | **B.02** — server-side auth for Next.js App Router (browser/server/proxy clients, cookie-based sessions) |
 | `@supabase/supabase-js` | `2.108.2` (exact) | **B.02** — Supabase JS client (`@supabase/ssr` peer); also used by the **B.03** service-role client + verify script |
-| `server-only` | `0.0.1` (exact) | **B.03** — marker package: makes `import 'server-only'` in `admin.ts` / `tokens.ts` a build error if ever pulled into a client bundle (the version Next itself uses) |
+| `server-only` | `0.0.1` (exact) | **B.03** — marker package: makes `import 'server-only'` in `admin.ts` / `tokens.ts` / the B.04 `lib/registry` + `lib/sanity` modules a build error if ever pulled into a client bundle (the version Next itself uses) |
+| `@sanity/client` | `7.22.1` (exact) | **B.04** — the per-tenant Sanity client, built server-side per request from the resolved client's projectId + decrypted Editor token. `next-sanity` deliberately NOT added (see Decision 2026-06-27) |
 
-All versions mirror the Vertex marketing site exactly, except `@base-ui/react` (Vertex pins `^1.4.0`; npm resolved `^1.6.0` here — compatible, satisfies Vertex's range). The `@supabase/*` and `server-only` packages are pinned **exact** (no caret), matching the `next`/`react` pinning convention.
+All versions mirror the Vertex marketing site exactly, except `@base-ui/react` (Vertex pins `^1.4.0`; npm resolved `^1.6.0` here — compatible, satisfies Vertex's range). The `@supabase/*`, `server-only`, and `@sanity/client` packages are pinned **exact** (no caret), matching the `next`/`react` pinning convention.
 
-**Token encryption uses Node's built-in `node:crypto` (AES-256-GCM)** — no third-party crypto library is added. **Intentionally NOT yet added** (arrive in the phase that needs them): `@sanity/client` / `next-sanity` (B.04), a portable-text editor (B.05), `resend` (optional). No 3D/animation libraries (the portal has no public marketing surface).
+**Token encryption uses Node's built-in `node:crypto` (AES-256-GCM)** — no third-party crypto library is added. **Sanity API version is pinned in code**, not a dependency: `SANITY_API_VERSION = '2026-03-01'` in `src/lib/sanity/client.ts` (hard-coded date, never dynamic; must be ≥ 2025-02-19 for the `perspective: 'raw'` draft/published semantics the editor list needs). **Intentionally NOT added:** `next-sanity` (rejected for a multi-tenant server-only-token portal — see Decisions 2026-06-27), a portable-text editor (B.05), `resend` (optional). No 3D/animation libraries (the portal has no public marketing surface).
 
 ## Dependencies (dev) — actual
 
@@ -48,7 +49,7 @@ All versions mirror the Vertex marketing site exactly, except `@base-ui/react` (
 
 - `tsconfig.json` — path alias `@/*` → `./src/*` (mirrors Vertex)
 - `scripts/tsconfig.json` — **B.03** tsx config: extends root, aliases `server-only`/`client-only` → the no-op stub so the scripts run under plain Node (the real bundle keeps the genuine guard)
-- `vitest.config.ts` — **B.03** Vitest config: Node environment, `src/**/*.test.ts`, aliases `server-only`/`client-only` → the no-op stub
+- `vitest.config.ts` — **B.03** Vitest config: Node environment, `src/**/*.test.ts`, aliases `server-only`/`client-only` → the no-op stub; **B.04** also aliases `@` → `./src` (mirrors the `@/*` tsconfig path) so the cross-importing read-path modules resolve in tests
 - `test/setup/server-guard-stub.ts` — **B.03** no-op stand-in for the `server-only`/`client-only` marker packages (used only by Vitest + the tsx scripts, never the real build)
 - `supabase/migrations/20260627120000_registry.sql` — **B.03** the registry schema + RLS (applied by the operator; see `docs/runbooks/registry-apply.md`)
 - `src/proxy.ts` — **B.02** Next.js 16 proxy (renamed successor to `middleware.ts`): session refresh + auth redirect; `config.matcher` excludes `_next/static`, `_next/image`, and common static assets
@@ -69,6 +70,18 @@ Three tables in the portal's Supabase project, all with **Row-Level Security ena
 - `client_secrets` — `client_id` (uuid pk) references `clients`, plus `token_ciphertext` / `token_iv` / `token_auth_tag` (base64 text), `created_at`. **Deny-all to browser sessions:** RLS on + no policy + `revoke all ... from anon, authenticated`. Only the service-role client (BYPASSRLS) reads/writes it.
 
 **Token-at-rest encryption:** per-client Sanity tokens are encrypted with **AES-256-GCM** (`src/lib/crypto/tokens.ts`) before storage — only base64 ciphertext/iv/auth_tag land in `client_secrets`. The 32-byte key lives only in `SANITY_TOKEN_ENC_KEY` (server env), never in the DB, so a DB or service-role compromise alone cannot reveal a token.
+
+## Per-tenant Sanity read path (B.04 — `server-only` modules)
+
+The server-side bridge that turns a session into one client's posts. All modules except `config/field-map.ts` start with `import 'server-only'`; none is imported by any `'use client'` file (verified).
+
+- `src/lib/registry/types.ts` — `TenantConfig` (camelCase mirror of a `clients` row) + `TenantContext` (`{ config, token }`).
+- `src/lib/registry/resolve-tenant.ts` — `resolveTenantWith(deps)` (pure, fail-closed core) + `cache()`d `resolveTenant` (real wiring: `getClaims().sub` → RLS-scoped mapping/config reads → service-role secret read → `decryptToken`). `TenantResolutionError` carries `reason ∈ {unauthenticated, no-client, config-missing, secret-missing}`. **No caller-supplied client/project id is ever accepted.**
+- `src/lib/sanity/client.ts` — `SANITY_API_VERSION='2026-03-01'` + `createTenantSanityClient(config, token)` (`useCdn:false`, `perspective:'raw'`).
+- `src/lib/sanity/posts.ts` — `listPosts(tenant, makeClient?)` reduces `raw`-perspective variants → `PostSummary[]` (draft/published status, `hasUnpublishedEdits`, `versions.*` ignored, newest-first) + `displayValue`.
+- `src/lib/config/field-map.ts` — `assertSafeFieldPath` (GROQ-injection guard) + `buildPostListQuery` (`$type` bound as a parameter). Pure logic, no secret.
+
+The Sanity project id + token come entirely from the registry (never env); B.04 adds **no** new environment variables.
 
 ## Theme / brand (in `src/app/globals.css`)
 

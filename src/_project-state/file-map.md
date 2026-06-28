@@ -1,6 +1,6 @@
 # File Map — Dashboard (Vertex client blog portal)
 
-Where things live. **Build status: auth + registry data layer (Phase B.03 complete).** Real paths below; every phase updates this file as files land.
+Where things live. **Build status: auth + registry + secure per-tenant Sanity read path (Phase B.04 complete).** Real paths below; every phase updates this file as files land.
 
 ## Repo root
 
@@ -9,8 +9,8 @@ Where things live. **Build status: auth + registry data layer (Phase B.03 comple
 - `AGENTS.md` — agent operating rules + the security boundary (paths point at `src/_project-state/`)
 - `.gitignore` — copied from Vertex (ignores `.env*`, `.vercel`, `.next/`)
 - `.env.local.example` — value-free template: browser-safe Supabase vars (B.02) + the two server-only secrets and the verify-script test creds (B.03); copy to `.env.local` (gitignored) and fill in
-- `package.json`, `tsconfig.json`, `next.config.ts`, `components.json`, `postcss.config.mjs`, `eslint.config.mjs` — config (B.01); `package.json` gains `test`/`seed`/`verify` scripts + `vitest`/`tsx`/`server-only` (B.03)
-- `vitest.config.ts` — **B.03** Vitest config (Node env; aliases `server-only`/`client-only` → the no-op stub)
+- `package.json`, `tsconfig.json`, `next.config.ts`, `components.json`, `postcss.config.mjs`, `eslint.config.mjs` — config (B.01); `package.json` gains `test`/`seed`/`verify` scripts + `vitest`/`tsx`/`server-only` (B.03); **B.04** adds `@sanity/client` `7.22.1` (exact)
+- `vitest.config.ts` — **B.03** Vitest config (Node env; aliases `server-only`/`client-only` → the no-op stub); **B.04** also aliases `@` → `./src` so the cross-importing `@/lib/...` modules resolve under Vitest
 - `.claude/launch.json` — local preview server config (dev + prod)
 - `docs/`, `briefs/`, `reports/`, `status/` — standard Vertex repo folders (B.01)
 - `scripts/`, `supabase/`, `test/` — **B.03** (see their own sections below)
@@ -58,6 +58,7 @@ Where things live. **Build status: auth + registry data layer (Phase B.03 comple
   - `Part-X-Phase-YY-Completion.md` — the template
   - `Part-B-Phase-01-Completion.md` — B.01 report
   - `Part-B-Phase-03-Completion.md` — **B.03** report
+  - `Part-B-Phase-04-Completion.md` — **B.04** report
 
 ## src/app/  (Next.js App Router)
 
@@ -68,14 +69,14 @@ Where things live. **Build status: auth + registry data layer (Phase B.03 comple
 - `(auth)/login/page.tsx` — branded login (Server Component): redirects already-authed users to `/posts`, else renders `<LoginForm />` (**B.02**)
 - `(auth)/login/login-form.tsx` — **B.02** `'use client'` form: `useActionState(signIn)`, inline generic error, pending state, controlled email
 - `(auth)/login/actions.ts` — **B.02** `'use server'` `signIn` action (`signInWithPassword`; generic error; redirect to `/posts` on success)
-- `(portal)/layout.tsx` — authenticated-portal shell; **B.02 authoritative gate** (`getClaims()` → redirect anon to `/login`) + `export const dynamic = 'force-dynamic'`; top-bar label = signed-in email
+- `(portal)/layout.tsx` — authenticated-portal shell; **B.02 authoritative gate** (`getClaims()` → redirect anon to `/login`) + `export const dynamic = 'force-dynamic'`; **B.04:** top-bar label = resolved client label (best-effort via the `cache()`d `resolveTenant`, email fallback)
 - `(portal)/actions.ts` — **B.02** `'use server'` `signOut` action (`signOut()` + redirect to `/login`)
-- `(portal)/posts/page.tsx` — empty "Your posts" placeholder (real list = B.04; editor = B.05)
+- `(portal)/posts/page.tsx` — **B.04** the per-tenant read path: resolves the tenant → `listPosts` → renders the client label + populated list, or the empty / not-linked / not-ready / read-error states; "New post" buttons inert (editor = B.05). Computes a render-state object inside try/catch, renders JSX outside it (error-boundaries lint rule)
 
 ## src/components/
 
 - `ui/` — shadcn `base-nova` primitives: `button.tsx`, `input.tsx`, `label.tsx`, `card.tsx`
-- `portal/` — shell pieces: `wordmark.tsx`, `portal-sidebar.tsx`, `portal-topbar.tsx` (**B.02:** sign-out wired to the `signOut` Server Action; `initialsFor` handles email labels), `portal-nav.tsx`
+- `portal/` — shell pieces: `wordmark.tsx`, `portal-sidebar.tsx`, `portal-topbar.tsx` (**B.02:** sign-out wired to the `signOut` Server Action; `initialsFor` handles email labels), `portal-nav.tsx`; **B.04** `posts-list.tsx` — presentational post list (Server Component; takes only `PostSummary[]` — never the tenant/token; title + draft/published badge with an "edited" hint + relative last-updated time)
 
 ## src/lib/
 
@@ -89,11 +90,21 @@ Where things live. **Build status: auth + registry data layer (Phase B.03 comple
 - `crypto/` — **B.03**:
   - `tokens.ts` — `import 'server-only'`; AES-256-GCM `encryptToken` / `decryptToken` (12-byte IV, 32-byte key from `SANITY_TOKEN_ENC_KEY`)
   - `tokens.test.ts` — Vitest unit tests (round-trip, tamper-throws, wrong-key-throws, unique-IV, key validation)
+- `registry/` — **B.04** the tenant resolver (the ownership check):
+  - `types.ts` — `import 'server-only'`; `TenantConfig` (camelCase mirror of a `clients` row) + `TenantContext` (`{ config, token }`; the `token` doc-comment forbids serializing it to the browser)
+  - `resolve-tenant.ts` — `import 'server-only'`; `resolveTenantWith(deps)` pure core (fails closed: `unauthenticated`/`no-client`/`config-missing`/`secret-missing`) + `cache()`d `resolveTenant` wiring the real session/RLS/service-role/decrypt seams; `TenantResolutionError`; `mapRowToConfig`; the `RegistrySource`/`ResolveDeps`/`ClientRow` seam types
+  - `isolation.test.ts` — **the load-bearing** offline cross-tenant isolation test (A→A/B→B, built-with-owner's-project+token, no caller override, secret keyed to owner, fail-closed paths)
+- `sanity/` — **B.04** the per-tenant Sanity bridge:
+  - `client.ts` — `import 'server-only'`; `SANITY_API_VERSION` (`'2026-03-01'`) + `createTenantSanityClient(config, token)` (`@sanity/client`; `useCdn:false`, `perspective:'raw'`; throws on empty token)
+  - `posts.ts` — `import 'server-only'`; `PostSummary`, `SanityReader` (injectable transport), `listPosts(tenant, makeClient?)` (raw-variant reduce → one row per logical post), `displayValue`
+  - `posts.test.ts` — offline reduce tests (status, `hasUnpublishedEdits`, draft-preference, `versions.*` ignored, sort, `displayValue`)
+- `config/` — **B.04** field-map helpers (NOT `server-only` — pure logic, no secret):
+  - `field-map.ts` — `assertSafeFieldPath` (GROQ-injection guard) + `buildPostListQuery` (`$type` as a bound parameter)
+  - `field-map.test.ts` — offline guard + query tests (injection rejected, `$type` parameterized)
 
 ## Planned (not yet created)
 
 - `src/app/(portal)/posts/new/`, `posts/[id]/` — create / edit (B.05)
-- `src/app/api/posts/`, `api/publish/`, `api/upload/` — server route handlers (B.04–B.07)
-- `src/lib/registry/` — resolve user → client config + token, with the authorize/ownership check (B.04); `src/lib/sanity/` — per-tenant write-client factory (B.04); `src/lib/config/` — field-map / locale helpers (B.05)
-- `src/components/editor/` — config-driven post editor (B.05)
-- Supabase tables `clients` + `client_users` + `client_secrets` with RLS now EXIST (B.03); the read path that uses them + the cross-tenant isolation test land in B.04
+- `src/app/api/*` — server route handlers, **if/when needed** (mutations land as Server Actions/handlers in B.05+; B.04 added none — the read is a Server Component data call)
+- `src/lib/config/` locale helpers + `src/components/editor/` — the config-driven post editor (B.05)
+- `next.config.ts` image `remotePatterns` for `cdn.sanity.io` — B.06; `revalidate_url` call on publish — B.07
