@@ -129,6 +129,7 @@ Onboarding a client is data, not code. Each client's config (stored in `clients`
 
 ### Live-site refresh
 - **Per-client revalidation** — on publish, the portal calls the client site's own revalidate endpoint (each client site already has one, e.g. Sunset's) so the client's live website updates within minutes.
+  - > **Revised 2026-06-28 (B.07):** revalidation is Sanity-webhook-driven; the portal sends nothing on publish — Sanity fires each client site's existing `/api/revalidate` webhook on publish, so the portal makes no outbound call and holds no revalidation secret. See the Decisions log (2026-06-28) and `docs/runbooks/live-site-revalidation.md`.
 
 ### Optional
 - **Resend** — notify the operator of activity; not required for v1.

@@ -300,3 +300,24 @@ Choices made during B.06 that the phase prompt did not spell out (none reverse a
 - **Whole-suite tests grew 105 → 130.** New file: `src/lib/sanity/assets.test.ts`; extended: `mutations.test.ts` (image set/clear/preserve), `field-map.test.ts` (image projection + write-key validation), `posts.test.ts` (`getPost` image surfacing), and `isolation.test.ts` (the B.06 upload + image-write §5 gate).
 
 **Decided by:** Claude, during B.06 implementation.
+
+---
+
+## 2026-06-28 — Live-site refresh is Sanity-webhook-driven; the portal sends nothing on publish (B.07)
+
+On publish, the client's **live website is refreshed by the client's own Sanity → site webhook**, not by an outbound call from the portal. The portal's only job at publish time is what it already does: write the published document into the client's Sanity project (promote the draft, delete it, in one transaction). Sanity then fires the client site's existing revalidation webhook (`POST <client-site>/api/revalidate`), and the site rebuilds the affected pages within a couple of minutes. The portal makes **no HTTP request to any client endpoint** and therefore holds **no revalidation secret**.
+
+This **revises the architecture described in `dashboard-Project-Instructions.md` §3 and `dashboard-Plan.md` §8**, which assumed the portal would POST to each client's `revalidate_url` on publish. The `clients.revalidate_url` column and `TenantConfig.revalidateUrl` field are **kept but intentionally unused by the portal** — left in place so a later switch to one of the rejected options needs no schema change, and documented as unused in `src/lib/registry/types.ts`.
+
+**Why this is the right shape:** the portal already publishes *into* the client's Sanity project, and a Sanity → site publish webhook is the standard, already-present way a Next.js + Sanity site revalidates (confirmed against the Sunset Services site, which already runs exactly this receiver at `/api/revalidate`). Delegating the refresh to Sanity keeps the portal lean and — the decisive factor — means the portal stores **one fewer secret per client** (no revalidation key on top of the Sanity Editor token), shrinking the blast radius of the one app that holds editing keys to every client's blog.
+
+**Alternatives considered:**
+- **Portal calls each client's existing `/api/revalidate` itself, signed.** Honors the original "portal pings" plan and lets the portal confirm the refresh, but the portal would have to store a second per-client secret (the revalidation key) and reproduce Sanity's exact HMAC webhook-signing — more sensitive material inside the security-critical portal, and a fiddly crypto surface to get wrong. Rejected for v1.
+- **Portal calls a new, simply-authed (bearer) endpoint added to each client site.** Simplest sending code (no signing), but requires a one-time code addition to every client website's repo — cross-repo work outside this project. Rejected for v1.
+
+**Consequences / accepted downside:**
+- Each client site must (a) expose a Sanity-webhook receiver at `/api/revalidate` and (b) hold its own `SANITY_REVALIDATE_SECRET`, and each client's **Sanity project must have the publish webhook configured** (manage.sanity.io → API → Webhooks). Sunset already has both; **Vertex and Dalibor must be verified / set up** — per-client onboarding work in **M.01**, documented in `docs/runbooks/live-site-revalidation.md`.
+- The portal **cannot itself confirm** a refresh happened (there is no response to read); the editor's existing "Published — your live site will update shortly." copy reflects this honestly. The live end-to-end proof (publish in portal → change appears on the live site within minutes) is **M.02**.
+- Until a client's webhook is configured, a portal publish still succeeds but the live site won't refresh until the webhook is switched on — closed per client in M.01.
+
+**Decided by:** user (Lazar) / Claude (orchestrator), in Chat. Reverse by adding a new dated entry (to one of the rejected options above).
