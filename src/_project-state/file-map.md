@@ -1,6 +1,6 @@
 # File Map — Dashboard (Vertex client blog portal)
 
-Where things live. **Build status: auth + registry + secure per-tenant Sanity read AND write path — the config-driven editor (Phase B.05 complete).** Real paths below; every phase updates this file as files land.
+Where things live. **Build status: auth + registry + secure per-tenant Sanity read AND write path + featured-image upload — the config-driven editor (Phase B.06 complete).** Real paths below; every phase updates this file as files land.
 
 ## Repo root
 
@@ -9,7 +9,7 @@ Where things live. **Build status: auth + registry + secure per-tenant Sanity re
 - `AGENTS.md` — agent operating rules + the security boundary (paths point at `src/_project-state/`)
 - `.gitignore` — copied from Vertex (ignores `.env*`, `.vercel`, `.next/`)
 - `.env.local.example` — value-free template: browser-safe Supabase vars (B.02) + the two server-only secrets and the verify-script test creds (B.03); copy to `.env.local` (gitignored) and fill in
-- `package.json`, `tsconfig.json`, `next.config.ts`, `components.json`, `postcss.config.mjs`, `eslint.config.mjs` — config (B.01); `package.json` gains `test`/`seed`/`verify` scripts + `vitest`/`tsx`/`server-only` (B.03); **B.04** adds `@sanity/client` `7.22.1` (exact)
+- `package.json`, `tsconfig.json`, `next.config.ts`, `components.json`, `postcss.config.mjs`, `eslint.config.mjs` — config (B.01); `package.json` gains `test`/`seed`/`verify` scripts + `vitest`/`tsx`/`server-only` (B.03); **B.04** adds `@sanity/client` `7.22.1` (exact); **B.06** is the first `next.config.ts` change since B.01 (image `remotePatterns` for `cdn.sanity.io` + `experimental.serverActions.bodySizeLimit: '5mb'`) — no new deps
 - `vitest.config.ts` — **B.03** Vitest config (Node env; aliases `server-only`/`client-only` → the no-op stub); **B.04** also aliases `@` → `./src` so the cross-importing `@/lib/...` modules resolve under Vitest
 - `.claude/launch.json` — local preview server config (dev + prod)
 - `docs/`, `briefs/`, `reports/`, `status/` — standard Vertex repo folders (B.01)
@@ -57,8 +57,11 @@ Where things live. **Build status: auth + registry + secure per-tenant Sanity re
 - `completions/` — one report per phase
   - `Part-X-Phase-YY-Completion.md` — the template
   - `Part-B-Phase-01-Completion.md` — B.01 report
+  - `Part-B-Phase-02-Completion.md` — **B.02** report
   - `Part-B-Phase-03-Completion.md` — **B.03** report
   - `Part-B-Phase-04-Completion.md` — **B.04** report
+  - `Part-B-Phase-05-Completion.md` — **B.05** report
+  - `Part-B-Phase-06-Completion.md` — **B.06** report
 
 ## src/app/  (Next.js App Router)
 
@@ -72,16 +75,16 @@ Where things live. **Build status: auth + registry + secure per-tenant Sanity re
 - `(portal)/layout.tsx` — authenticated-portal shell; **B.02 authoritative gate** (`getClaims()` → redirect anon to `/login`) + `export const dynamic = 'force-dynamic'`; **B.04:** top-bar label = resolved client label (best-effort via the `cache()`d `resolveTenant`, email fallback)
 - `(portal)/actions.ts` — **B.02** `'use server'` `signOut` action (`signOut()` + redirect to `/login`)
 - `(portal)/posts/page.tsx` — **B.04** the per-tenant read path: resolves the tenant → `listPosts` → renders the client label + populated list, or the empty / not-linked / not-ready / read-error states. Computes a render-state object inside try/catch, renders JSX outside it (error-boundaries lint rule). **B.05:** both "New post" buttons are now links to `/posts/new`
-- `(portal)/posts/actions.ts` — **B.05** `'use server'` mutating actions (`createPostAction` / `saveDraftAction` / `publishPostAction` / `deletePostAction`). Each **re-resolves the tenant** (`resolveTenant()`) — re-auth + re-authorize on every POST — parses per-locale fields from `FormData`, dispatches the matching `mutations.ts` function, `revalidatePath`s, and returns a generic non-leaking result or `redirect`s. `redirect()` is always outside the try/catch
-- `(portal)/posts/new/page.tsx` — **B.05** create-mode editor page (Server Component): resolves the tenant for its config (labels/locales) → renders `<PostEditor mode="create">`; resolution failure → friendly not-linked / not-ready notice
-- `(portal)/posts/[id]/page.tsx` — **B.05** edit-mode editor page (Server Component): `getPost(tenant, id)` → `<PostEditor mode="edit">` with the post's per-locale values + status; null → friendly not-found; read failure → friendly error. `params` is awaited (Next 16 async params)
+- `(portal)/posts/actions.ts` — **B.05** `'use server'` mutating actions (`createPostAction` / `saveDraftAction` / `publishPostAction` / `deletePostAction`). Each **re-resolves the tenant** (`resolveTenant()`) — re-auth + re-authorize on every POST — parses per-locale fields from `FormData`, dispatches the matching `mutations.ts` function, `revalidatePath`s, and returns a generic non-leaking result or `redirect`s. `redirect()` is always outside the try/catch. **B.06** adds `uploadImageAction` (re-resolves → `uploadImage`, returns `ImageUploadState` with a friendly/non-leaking error) and the image tri-state in `parseFields` (hidden `image` vs `imageOriginal`; malformed asset id fails generically)
+- `(portal)/posts/new/page.tsx` — **B.05** create-mode editor page (Server Component): resolves the tenant for its config (labels/locales) → renders `<PostEditor mode="create">`; resolution failure → friendly not-linked / not-ready notice. **B.06** `emptyInitial` includes `image: { assetId: null, url: null }`
+- `(portal)/posts/[id]/page.tsx` — **B.05** edit-mode editor page (Server Component): `getPost(tenant, id)` → `<PostEditor mode="edit">` with the post's per-locale values + status; null → friendly not-found; read failure → friendly error. `params` is awaited (Next 16 async params). **B.06** passes `initial.image = detail.image`
 
 ## src/components/
 
 - `ui/` — shadcn `base-nova` primitives: `button.tsx`, `input.tsx`, `label.tsx`, `card.tsx`
 - `portal/` — shell pieces: `wordmark.tsx`, `portal-sidebar.tsx`, `portal-topbar.tsx` (**B.02:** sign-out wired to the `signOut` Server Action; `initialsFor` handles email labels), `portal-nav.tsx`; **B.04** `posts-list.tsx` — presentational post list (Server Component; takes only `PostSummary[]` — never the tenant/token; title + draft/published badge with an "edited" hint + relative last-updated time); **B.05:** each row is now a `Link` to `/posts/[id]`
-- `editor/` — **B.05** the config-driven editor:
-  - `post-editor.tsx` — `'use client'` form: per-locale headline/summary/body + slug, inert "coming soon" image field, locale tabs when multi-locale, Save-draft / Publish (shared form via `formAction`) + Delete-with-confirm. Uses `useActionState`; receives **only** serializable non-secret props (locales + per-locale values + status) — never the tenant/token; imports the four Server Actions directly
+- `editor/` — **B.05/B.06** the config-driven editor:
+  - `post-editor.tsx` — `'use client'` form: per-locale headline/summary/body + slug, locale tabs when multi-locale, Save-draft / Publish (shared form via `formAction`) + Delete-with-confirm. Uses `useActionState`; receives **only** serializable non-secret props (locales + per-locale values + status + image asset id/URL) — never the tenant/token; imports the Server Actions directly. **B.06** the `FeaturedImageField` control: pick → upload (own `useTransition` → `uploadImageAction`) → `next/image` preview → Remove/Replace; the file input is unnamed (bytes never ride with Save/Publish); hidden `image`/`imageOriginal` inputs carry the intent into the main form
   - `editor-message.tsx` — presentational Server Component for the editor pages' friendly not-linked / not-ready / not-found / read-error states (with a "Back to posts" link); never receives a tenant/token/raw error
 
 ## src/lib/
@@ -100,17 +103,19 @@ Where things live. **Build status: auth + registry + secure per-tenant Sanity re
   - `types.ts` — `import 'server-only'`; `TenantConfig` (camelCase mirror of a `clients` row) + `TenantContext` (`{ config, token }`; the `token` doc-comment forbids serializing it to the browser)
   - `resolve-tenant.ts` — `import 'server-only'`; `resolveTenantWith(deps)` pure core (fails closed: `unauthenticated`/`no-client`/`config-missing`/`secret-missing`) + `cache()`d `resolveTenant` wiring the real session/RLS/service-role/decrypt seams; `TenantResolutionError`; `mapRowToConfig`; the `RegistrySource`/`ResolveDeps`/`ClientRow` seam types
   - `isolation.test.ts` — **the load-bearing** offline cross-tenant isolation test (A→A/B→B, built-with-owner's-project+token, no caller override, secret keyed to owner, fail-closed paths)
-- `sanity/` — **B.04/B.05** the per-tenant Sanity bridge (read + write):
+- `sanity/` — **B.04/B.05/B.06** the per-tenant Sanity bridge (read + write + image upload):
   - `client.ts` — `import 'server-only'`; `SANITY_API_VERSION` (`'2026-03-01'`) + `createTenantSanityClient(config, token)` (`@sanity/client`; `useCdn:false`, `perspective:'raw'`; throws on empty token)
-  - `posts.ts` — `import 'server-only'`; **B.04** `PostSummary`, `SanityReader` (injectable transport), `listPosts(tenant, makeClient?)` (raw-variant reduce → one row per logical post), `displayValue`; **B.05** `getPost(tenant, id, makeClient?)` + `PostDetail` (single-post load: draft-preferred reduce, per-locale field values, `bodyEditable`, id-normalized)
-  - `posts.test.ts` — offline reduce tests + **B.05** `getPost` tests (draft preference, per-locale, `bodyEditable`, normalization, not-found)
-  - `mutations.ts` — **B.05** `import 'server-only'`; the **only** write site: `createDraft` / `saveDraft` / `publishPost` / `deletePost` + the injectable `SanityWriter` / `WriteTransaction` / `MakeWriter` seam, `EditorFields`. Draft-id model; read-modify-write overlay; atomic publish/delete transactions; token never returned/logged
-  - `mutations.test.ts` — **B.05** offline dispatch-shape tests (drafts.<id> target, non-essential preservation, publish/delete transactions, no image key, no token leak)
+  - `posts.ts` — `import 'server-only'`; **B.04** `PostSummary`, `SanityReader` (injectable transport), `listPosts(tenant, makeClient?)` (raw-variant reduce → one row per logical post), `displayValue`; **B.05** `getPost(tenant, id, makeClient?)` + `PostDetail` (single-post load: draft-preferred reduce, per-locale field values, `bodyEditable`, id-normalized); **B.06** `PostDetail.image = { assetId, url }` surfaced via `asStringOrNull` (list unchanged)
+  - `posts.test.ts` — offline reduce tests + **B.05** `getPost` tests (draft preference, per-locale, `bodyEditable`, normalization, not-found); **B.06** image-surfacing tests
+  - `mutations.ts` — **B.05** `import 'server-only'`; the **only** write site: `createDraft` / `saveDraft` / `publishPost` / `deletePost` + the injectable `SanityWriter` / `WriteTransaction` / `MakeWriter` seam, `EditorFields`. Draft-id model; read-modify-write overlay; atomic publish/delete transactions; token never returned/logged; **B.06** `EditorFields.image` (tri-state) + `applyImageIntent` (preserve / write reference / actively delete on clear)
+  - `mutations.test.ts` — **B.05** offline dispatch-shape tests (drafts.<id> target, non-essential preservation, publish/delete transactions, no token leak); **B.06** image set/clear/preserve tests
+  - `assets.ts` — **B.06** `import 'server-only'`; the **only** image-upload site: `uploadImage(tenant, file, makeUploader?)` (validate 4 MB + JPG/PNG/WebP/GIF allowlist → `Buffer` → per-tenant `assets.upload`), `ImageUploadError`/`ImageUploadReason`, the injectable `AssetUploader`/`MakeUploader` seam, `isValidAssetId`; returns `{ assetId, url }`, token never returned/logged
+  - `assets.test.ts` — **B.06** offline validation + dispatch-shape + no-token-leak + `isValidAssetId` tests
   - `doc-id.ts` — **B.05** NOT `server-only` (pure, no secret): `normalizePostId` (strip `drafts.`/`versions.` prefixes, reject non-plain ids) / `isValidDocId` / `draftId` — single source of truth for id sanitization
   - `doc-id.test.ts` — **B.05** offline id-sanitization tests (prefix stripping, injection/path rejection)
 - `config/` — **B.04/B.05** field-map + locale + Portable Text helpers (NOT `server-only` — pure logic, no secret):
-  - `field-map.ts` — `assertSafeFieldPath` (GROQ-injection guard) + `buildPostListQuery` (`$type` bound); **B.05** `buildPostByIdQuery` (`$id`/`$draftId` bound, projects body), `assertWritableFieldPaths` (validates mutation keys), `slugContainerField` (derives the slug container)
-  - `field-map.test.ts` — guard + query tests; **B.05** `buildPostByIdQuery` params, write-key validation, slug-container
+  - `field-map.ts` — `assertSafeFieldPath` (GROQ-injection guard) + `buildPostListQuery` (`$type` bound); **B.05** `buildPostByIdQuery` (`$id`/`$draftId` bound, projects body), `assertWritableFieldPaths` (validates mutation keys), `slugContainerField` (derives the slug container); **B.06** `buildPostByIdQuery` also projects the image (`imageAssetId`/`imageUrl`), `assertWritableFieldPaths` also validates the image key
+  - `field-map.test.ts` — guard + query tests; **B.05** `buildPostByIdQuery` params, write-key validation, slug-container; **B.06** image projection + image write-key validation
   - `localize.ts` — **B.05** `toFieldValue` / `fromFieldValue` / `fromLocalizedRaw` + `localeList` / `primaryLocale` / `isMultiLocale` (single-locale plain value ⇄ multi-locale `{ [locale]: value }`; multi-locale storage shape provisional → M.01)
   - `localize.test.ts` — **B.05** single- vs multi-locale round-trip tests
   - `portable-text.ts` — **B.05** `textToPortableText` / `portableTextToText` / `isEditableBody` (plain text ⇄ minimal Portable Text; the data-loss guard — rich bodies flagged read-only)
@@ -118,5 +123,5 @@ Where things live. **Build status: auth + registry + secure per-tenant Sanity re
 
 ## Planned (not yet created)
 
-- `src/app/api/*` — server route handlers, **if/when needed** (mutations landed as Server Actions in B.05 — `posts/actions.ts` — not route handlers; none needed so far)
-- `src/components/editor/` image upload control + `next.config.ts` image `remotePatterns` for `cdn.sanity.io` — B.06; `revalidate_url` call on publish — B.07
+- `src/app/api/*` — server route handlers, **if/when needed** (mutations + the B.06 image upload landed as Server Actions in `posts/actions.ts` — not route handlers; none needed so far)
+- `revalidate_url` call on publish — **B.07** (call the client site's revalidate endpoint on publish; handle failure without losing the publish)

@@ -1,16 +1,19 @@
 "use client"
 
-import { useActionState, useState } from "react"
+import { useActionState, useRef, useState, useTransition } from "react"
 import {
   AlertTriangle,
   ArrowLeft,
   CheckCircle2,
   ImageIcon,
+  ImagePlus,
   Loader2,
   Lock,
   Send,
   Trash2,
+  X,
 } from "lucide-react"
+import Image from "next/image"
 import Link from "next/link"
 
 import {
@@ -18,7 +21,9 @@ import {
   deletePostAction,
   publishPostAction,
   saveDraftAction,
+  uploadImageAction,
   type EditorActionState,
+  type ImageUploadState,
 } from "@/app/(portal)/posts/actions"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -52,6 +57,11 @@ export interface PostEditorProps {
     excerpt: LocaleValues
     body: LocaleValues
     slug: string
+    /**
+     * The currently-attached featured image (B.06). `assetId`/`url` are non-secret
+     * (the asset reference + a public `cdn.sanity.io` URL); both null when none.
+     */
+    image?: { assetId: string | null; url: string | null }
   }
   /** Edit mode only. */
   status?: "draft" | "published"
@@ -61,6 +71,12 @@ export interface PostEditorProps {
 }
 
 const INITIAL_STATE: EditorActionState = { ok: false, error: null }
+const INITIAL_IMAGE_STATE: ImageUploadState = {
+  ok: false,
+  assetId: null,
+  url: null,
+  error: null,
+}
 
 const textareaClass =
   "w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-2 text-base leading-relaxed transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-60 md:text-sm dark:bg-input/30"
@@ -101,11 +117,52 @@ export function PostEditor({
     INITIAL_STATE,
   )
 
-  const busy = createPending || savePending || publishPending
+  // Featured image (B.06): uploaded separately from Save/Publish via its own
+  // transition, so its bytes never ride along with a normal save. The chosen asset
+  // id flows into the main form through the hidden `image`/`imageOriginal` inputs.
+  const [image, setImage] = useState<{
+    assetId: string | null
+    url: string | null
+  }>(initial.image ?? { assetId: null, url: null })
+  const [imageError, setImageError] = useState<string | null>(null)
+  const [uploadPending, startUpload] = useTransition()
+  const imageOriginal = initial.image?.assetId ?? ""
+
+  const busy =
+    createPending || savePending || publishPending || uploadPending
   const primaryAction = mode === "create" ? createDispatch : saveDispatch
   const error = createState.error ?? saveState.error ?? publishState.error
   const savedOk = (saveState.ok || createState.ok) && !busy
   const publishedOk = publishState.ok && !busy
+
+  /**
+   * Upload the picked file via its own Server Action (never with Save/Publish).
+   * On success the preview + hidden field follow `image`; on failure the current
+   * image is left in place and a friendly inline error is shown.
+   */
+  function handlePickImage(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    // Reset so re-picking the same file still fires `change`.
+    e.target.value = ""
+    if (!file) return
+    const fd = new FormData()
+    fd.append("file", file)
+    startUpload(async () => {
+      const result = await uploadImageAction(INITIAL_IMAGE_STATE, fd)
+      if (result.ok && result.assetId) {
+        setImage({ assetId: result.assetId, url: result.url })
+        setImageError(null)
+      } else {
+        setImageError(result.error)
+      }
+    })
+  }
+
+  /** Clear the current image (Save/Publish will then drop it from the post). */
+  function handleRemoveImage() {
+    setImage({ assetId: null, url: null })
+    setImageError(null)
+  }
 
   return (
     <div className="flex flex-col gap-6 animate-fade-in">
@@ -135,6 +192,21 @@ export function PostEditor({
           type="hidden"
           name="bodyEditable"
           value={bodyEditable ? "true" : "false"}
+          readOnly
+        />
+        {/* Featured image intent carried into Save/Publish (B.06): `image` is the
+            currently-chosen asset id; `imageOriginal` is what the form loaded with.
+            The action compares them to preserve / write / clear the image. */}
+        <input
+          type="hidden"
+          name="image"
+          value={image.assetId ?? ""}
+          readOnly
+        />
+        <input
+          type="hidden"
+          name="imageOriginal"
+          value={imageOriginal}
           readOnly
         />
 
@@ -246,26 +318,15 @@ export function PostEditor({
           />
         </Field>
 
-        {/* Featured image — present but inert until B.06. */}
-        <Field id="image" label="Featured image" optional>
-          <div className="flex items-center gap-3 rounded-card border border-dashed border-border bg-surface/40 px-4 py-5 text-muted-foreground">
-            <span
-              className="grid size-10 shrink-0 place-items-center rounded-lg bg-secondary"
-              aria-hidden
-            >
-              <ImageIcon className="size-5" />
-            </span>
-            <div className="flex flex-col gap-0.5">
-              <span className="text-small text-foreground">
-                Image upload arrives soon
-              </span>
-              <span className="text-micro">
-                You&rsquo;ll be able to add a featured image here in an upcoming
-                update.
-              </span>
-            </div>
-          </div>
-        </Field>
+        {/* Featured image (B.06) — pick → upload → preview → remove/replace. */}
+        <FeaturedImageField
+          image={image}
+          uploadPending={uploadPending}
+          error={imageError}
+          disabled={busy}
+          onPick={handlePickImage}
+          onRemove={handleRemoveImage}
+        />
 
         {error ? (
           <p
@@ -356,6 +417,141 @@ function Field({
         ) : null}
       </div>
       {children}
+    </div>
+  )
+}
+
+/**
+ * The featured-image control (B.06). Shows the current image (or an empty state),
+ * a Choose/Replace trigger that opens the file picker, and a Remove button. The
+ * actual upload runs through `uploadImageAction` (driven by the parent); the file
+ * input is unnamed so its bytes are NEVER submitted with Save/Publish — only the
+ * resulting asset id rides along, via the parent's hidden inputs.
+ */
+function FeaturedImageField({
+  image,
+  uploadPending,
+  error,
+  disabled,
+  onPick,
+  onRemove,
+}: {
+  image: { assetId: string | null; url: string | null }
+  uploadPending: boolean
+  error: string | null
+  disabled: boolean
+  onPick: (e: React.ChangeEvent<HTMLInputElement>) => void
+  onRemove: () => void
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const hasImage = Boolean(image.assetId)
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <Label htmlFor="image-file">Featured image</Label>
+        <span className="text-micro text-muted-foreground">Optional</span>
+      </div>
+
+      {hasImage && image.url ? (
+        <div className="relative aspect-video w-full max-w-sm overflow-hidden rounded-card border border-border bg-secondary">
+          <Image
+            src={image.url}
+            alt="Featured image preview"
+            fill
+            sizes="(max-width: 640px) 100vw, 24rem"
+            className="object-cover"
+          />
+        </div>
+      ) : hasImage ? (
+        // An image is attached but its URL didn't resolve — still a valid state.
+        <div className="flex items-center gap-3 rounded-card border border-border bg-surface/40 px-4 py-5 text-muted-foreground">
+          <span
+            className="grid size-10 shrink-0 place-items-center rounded-lg bg-secondary"
+            aria-hidden
+          >
+            <ImageIcon className="size-5" />
+          </span>
+          <span className="text-small text-foreground">Image attached</span>
+        </div>
+      ) : (
+        <div className="flex items-center gap-3 rounded-card border border-dashed border-border bg-surface/40 px-4 py-5 text-muted-foreground">
+          <span
+            className="grid size-10 shrink-0 place-items-center rounded-lg bg-secondary"
+            aria-hidden
+          >
+            <ImageIcon className="size-5" />
+          </span>
+          <div className="flex flex-col gap-0.5">
+            <span className="text-small text-foreground">No image yet</span>
+            <span className="text-micro">
+              Add a featured image — JPG, PNG, WebP, or GIF, up to 4&nbsp;MB.
+            </span>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2.5">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={disabled}
+        >
+          {uploadPending ? (
+            <Loader2 className="size-4 animate-spin" aria-hidden />
+          ) : (
+            <ImagePlus className="size-4" aria-hidden />
+          )}
+          {hasImage ? "Replace image" : "Choose image"}
+        </Button>
+        {hasImage ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onRemove}
+            disabled={disabled}
+          >
+            <X className="size-4" aria-hidden />
+            Remove
+          </Button>
+        ) : null}
+      </div>
+
+      {/* Unnamed on purpose: the file is uploaded via its own action, never sent
+          with the editor form, so a Save never re-uploads the image bytes. */}
+      <input
+        ref={fileInputRef}
+        id="image-file"
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif"
+        className="sr-only"
+        onChange={onPick}
+        disabled={disabled}
+      />
+
+      {uploadPending ? (
+        <p
+          aria-live="polite"
+          className="flex items-center gap-2 text-small text-muted-foreground"
+        >
+          <Loader2 className="size-4 animate-spin" aria-hidden />
+          Uploading image…
+        </p>
+      ) : null}
+
+      {error ? (
+        <p
+          role="alert"
+          aria-live="polite"
+          className="flex items-center gap-2 text-small text-destructive"
+        >
+          <AlertTriangle className="size-4 shrink-0" aria-hidden />
+          {error}
+        </p>
+      ) : null}
     </div>
   )
 }

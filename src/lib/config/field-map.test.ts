@@ -108,10 +108,25 @@ describe('buildPostByIdQuery', () => {
     expect(q).toContain('_updatedAt')
   })
 
+  it('projects the featured image asset id and a public CDN url (B.06)', () => {
+    const q = buildPostByIdQuery(CONFIG)
+    // `image` is the flat field name (`mainImage`); the asset ref + deref'd url.
+    expect(q).toContain('"imageAssetId": mainImage.asset._ref')
+    expect(q).toContain('"imageUrl": mainImage.asset->url')
+  })
+
   it('throws rather than build a query from an unsafe field name (incl. body)', () => {
     const evil: TenantConfig = {
       ...CONFIG,
       fieldMap: { ...CONFIG.fieldMap, body: 'body} | *[_type=="secret"]{' },
+    }
+    expect(() => buildPostByIdQuery(evil)).toThrow()
+  })
+
+  it('throws rather than build a query from an unsafe image field name (B.06)', () => {
+    const evil: TenantConfig = {
+      ...CONFIG,
+      fieldMap: { ...CONFIG.fieldMap, image: 'mainImage} | *[_type=="secret"]{' },
     }
     expect(() => buildPostByIdQuery(evil)).toThrow()
   })
@@ -127,6 +142,16 @@ describe('assertWritableFieldPaths', () => {
       const evil: TenantConfig = {
         ...CONFIG,
         fieldMap: { ...CONFIG.fieldMap, body: badKey },
+      }
+      expect(() => assertWritableFieldPaths(evil)).toThrow()
+    }
+  })
+
+  it('validates the image field name too, so it is safe as a mutation key (B.06)', () => {
+    for (const badImage of ['main image', 'mainImage) {', '', '1img']) {
+      const evil: TenantConfig = {
+        ...CONFIG,
+        fieldMap: { ...CONFIG.fieldMap, image: badImage },
       }
       expect(() => assertWritableFieldPaths(evil)).toThrow()
     }

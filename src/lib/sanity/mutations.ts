@@ -3,6 +3,7 @@ import 'server-only'
 import { randomUUID } from 'node:crypto'
 
 import {
+  assertSafeFieldPath,
   assertWritableFieldPaths,
   slugContainerField,
 } from '@/lib/config/field-map'
@@ -84,6 +85,16 @@ export interface EditorFields {
    * silently strip it). Provide (even empty strings) to overwrite it.
    */
   body?: Record<string, string>
+  /**
+   * The featured image intent (B.06), tri-state — mirrors how `body` omission
+   * preserves rich content:
+   *   - OMITTED (undefined) → preserve the stored image untouched (keeps any
+   *     client-side hotspot/crop/alt metadata on it);
+   *   - `{ assetId: <non-empty> }` → write the image reference;
+   *   - `{ assetId: null }` (or empty) → clear the image (the written document
+   *     must NOT contain the image field — see {@link applyImageIntent}).
+   */
+  image?: { assetId: string | null }
 }
 
 /** Re-read immediately after a write, so `/posts` reflects the change. */
@@ -120,7 +131,8 @@ function resolveType(doc: FetchedDoc | undefined, config: TenantConfig): string 
  * against GROQ-injection first. Title/excerpt are written via the localized shape;
  * body (when provided) is converted plain text → minimal Portable Text per locale;
  * the slug (when non-empty) is written as a slug object on its container field.
- * The image field is intentionally never written (B.06).
+ * The featured image is applied separately by {@link applyImageIntent} onto the
+ * final document (it is tri-state: preserve / write / clear).
  */
 function buildEssentials(
   config: TenantConfig,
@@ -147,6 +159,41 @@ function buildEssentials(
   }
 
   return essentials
+}
+
+/**
+ * Apply the tri-state featured-image intent onto the already-built document
+ * (after `buildEssentials` has been spread in). Because `createOrReplace`
+ * replaces the WHOLE document, the read-modify-write `base` carries the stored
+ * image — so a CLEAR must actively delete the field, not merely skip it:
+ *   - `image` undefined → leave the doc untouched (preserve the stored image and
+ *     any client-side hotspot/crop/alt metadata on it — never silently strip it,
+ *     exactly like the rich-body guard);
+ *   - non-empty `assetId` → write `{ _type:'image', asset:{ _type:'reference',
+ *     _ref } }` onto the image field;
+ *   - null/empty `assetId` → DELETE the image field so it is absent from the doc.
+ *
+ * The image field name is GROQ-guarded (it is validated by
+ * {@link assertWritableFieldPaths} inside `buildEssentials`, which always runs
+ * first; re-validated here for defense in depth before it is used as a key).
+ */
+function applyImageIntent(
+  doc: MutationDoc,
+  config: TenantConfig,
+  image: EditorFields['image'],
+): void {
+  if (image === undefined) return
+  const field = config.fieldMap.image
+  assertSafeFieldPath(field)
+  const assetId = image.assetId?.trim()
+  if (assetId) {
+    doc[field] = {
+      _type: 'image',
+      asset: { _type: 'reference', _ref: assetId },
+    }
+  } else {
+    delete doc[field]
+  }
 }
 
 /** Fetch both variants (published + `drafts.<id>`) as full documents. */
@@ -185,6 +232,7 @@ export async function createDraft(
     _type: tenant.config.blogDocType,
     ...buildEssentials(tenant.config, fields),
   }
+  applyImageIntent(doc, tenant.config, fields.image)
   await writer.createOrReplace(doc, SYNC)
   return id
 }
@@ -215,6 +263,7 @@ export async function saveDraft(
     _type: resolveType(current, tenant.config),
     ...buildEssentials(tenant.config, fields),
   }
+  applyImageIntent(doc, tenant.config, fields.image)
   await writer.createOrReplace(doc, SYNC)
   return id
 }

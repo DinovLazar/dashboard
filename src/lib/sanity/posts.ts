@@ -58,6 +58,12 @@ export interface PostDetail {
   hasUnpublishedEdits: boolean
   updatedAt: string
   /**
+   * The currently-attached featured image (B.06), so the edit form can show it.
+   * `assetId` is the Sanity asset reference; `url` is a public `cdn.sanity.io`
+   * URL (neither is a secret). Both are null when the post has no image.
+   */
+  image: { assetId: string | null; url: string | null }
+  /**
    * False when the stored body is richer than simple paragraphs (marks, links,
    * headings, lists, embeds): the editor then shows it read-only so a plain-text
    * save can never silently strip the client's rich content. See
@@ -165,9 +171,19 @@ export async function listPosts(
   return posts
 }
 
-/** One raw variant as returned by the single-post query (adds the body field). */
+/**
+ * One raw variant as returned by the single-post query (adds the body field and
+ * the projected featured-image asset id + public CDN url).
+ */
 interface RawPostDetailDoc extends RawPostDoc {
   body?: unknown
+  imageAssetId?: unknown
+  imageUrl?: unknown
+}
+
+/** Coerce a projected value to a string, or null when it isn't a usable string. */
+function asStringOrNull(v: unknown): string | null {
+  return typeof v === 'string' && v.length > 0 ? v : null
 }
 
 /**
@@ -235,6 +251,10 @@ export async function getPost(
     status: published ? 'published' : 'draft',
     hasUnpublishedEdits: Boolean(published && draftDoc),
     updatedAt: source._updatedAt,
+    image: {
+      assetId: asStringOrNull(source.imageAssetId),
+      url: asStringOrNull(source.imageUrl),
+    },
     bodyEditable,
   }
 }

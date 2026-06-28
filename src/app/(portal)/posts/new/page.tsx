@@ -17,7 +17,13 @@ export const metadata: Metadata = {
 function emptyInitial(locales: string[]) {
   const blank: Record<string, string> = {}
   for (const loc of locales) blank[loc] = ""
-  return { title: { ...blank }, excerpt: { ...blank }, body: { ...blank }, slug: "" }
+  return {
+    title: { ...blank },
+    excerpt: { ...blank },
+    body: { ...blank },
+    slug: "",
+    image: { assetId: null, url: null },
+  }
 }
 
 /** Map a resolution failure to a friendly, non-leaking editor notice. */

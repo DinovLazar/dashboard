@@ -88,6 +88,7 @@ export default async function EditPostPage({
         excerpt: detail.fields.excerpt,
         body: detail.fields.body,
         slug: detail.fields.slug,
+        image: detail.image,
       }}
       status={detail.status}
       hasUnpublishedEdits={detail.hasUnpublishedEdits}

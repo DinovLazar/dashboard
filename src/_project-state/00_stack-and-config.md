@@ -1,8 +1,8 @@
 # Stack and Configuration
 
-The real, verified stack for the Vertex Consulting client blog portal as of **Phase B.05** (2026-06-27). Append changes as they land; keep it factual.
+The real, verified stack for the Vertex Consulting client blog portal as of **Phase B.06** (2026-06-28). Append changes as they land; keep it factual.
 
-**Build status: building clean with auth + the registry data layer + the secure per-tenant Sanity read AND write path (the config-driven editor).** `npm run build` passes (the `server-only` guard holds), `npm run lint` is clean, and `npm test` is green (**105 tests**: 10 crypto + the B.04 read-path suites + the B.05 write path — mutations dispatch shapes, `getPost`, localize, portable-text, doc-id, and the cross-tenant isolation test now extended to all four mutations). The Supabase registry schema (three tables + RLS) lives in `supabase/migrations/`; the encrypted-token crypto module, the service-role client, the tenant resolver, the per-tenant Sanity read path, the **mutation module** (`src/lib/sanity/mutations.ts`), and the **mutating Server Actions** (`src/app/(portal)/posts/actions.ts`) are in place. `/login`, `/posts`, `/posts/new`, and `/posts/[id]` are dynamic (`ƒ`), and the proxy is active. **B.05 added no new dependencies, no new environment variables, and no `next.config.ts` change.**
+**Build status: building clean with auth + the registry data layer + the secure per-tenant Sanity read AND write path + featured-image upload (the config-driven editor).** `npm run build` passes (the `server-only` guard holds), `npm run lint` is clean, and `npm test` is green (**130 tests**: 10 crypto + the B.04 read-path suites + the B.05 write path + the B.06 image-upload suite — upload validation/dispatch + image set/clear/preserve + image projection + `getPost` image surfacing, and the cross-tenant isolation test now extended to the image upload + image write). The Supabase registry schema (three tables + RLS) lives in `supabase/migrations/`; the encrypted-token crypto module, the service-role client, the tenant resolver, the per-tenant Sanity read path, the **mutation module** (`src/lib/sanity/mutations.ts`), the **image-upload module** (`src/lib/sanity/assets.ts`), and the **Server Actions** (`src/app/(portal)/posts/actions.ts`) are in place. `/login`, `/posts`, `/posts/new`, and `/posts/[id]` are dynamic (`ƒ`), and the proxy is active. **B.06 added no new dependencies and no new environment variables; it made the first `next.config.ts` change since B.01** (image `remotePatterns` + `serverActions.bodySizeLimit`).
 
 ## Framework and runtime
 
@@ -54,7 +54,7 @@ All versions mirror the Vertex marketing site exactly, except `@base-ui/react` (
 - `supabase/migrations/20260627120000_registry.sql` — **B.03** the registry schema + RLS (applied by the operator; see `docs/runbooks/registry-apply.md`)
 - `src/proxy.ts` — **B.02** Next.js 16 proxy (renamed successor to `middleware.ts`): session refresh + auth redirect; `config.matcher` excludes `_next/static`, `_next/image`, and common static assets
 - `.env.local.example` — value-free template; **B.03** added the two server-only secrets + the verify-script test creds (names/placeholders only; tracked via the `!.env.local.example` allowlist in `.gitignore`)
-- `next.config.ts` — minimal/empty (no i18n, no image remotePatterns yet)
+- `next.config.ts` — **B.06** (first change since B.01): `images.remotePatterns: [{ protocol: 'https', hostname: 'cdn.sanity.io' }]` (lets `next/image` render Sanity-CDN featured-image previews; any other host → 400) + `experimental.serverActions.bodySizeLimit: '5mb'` (raises the Server Action request-body cap above the 4 MB app-level image cap; the Vercel Function 4.5 MB body ceiling remains the hard physical limit). No i18n. Both keys/shapes confirmed against this Next version's in-repo docs
 - `postcss.config.mjs` — `@tailwindcss/postcss` only (Tailwind v4, CSS-first; **no `tailwind.config.js`**)
 - `eslint.config.mjs` — flat config extending `eslint-config-next` core-web-vitals + typescript
 - `components.json` — shadcn: style `base-nova`, base color `neutral`, CSS vars on, css `src/app/globals.css`, lucide icons, RSC on
@@ -94,7 +94,19 @@ The editor writes through the same B.04 bridge — built per request from the se
 - `src/lib/config/field-map.ts` (extended) — `buildPostByIdQuery` (`$id`/`$draftId` bound; projects body), `assertWritableFieldPaths`, `slugContainerField`.
 - `src/app/(portal)/posts/actions.ts` (`'use server'`) — the four mutating actions; each re-resolves + re-authorizes; `revalidatePath` on success; generic non-leaking errors.
 
-B.05 adds **no** new dependencies and **no** new environment variables (no portable-text editor library — the body is plain text ⇄ minimal Portable Text in app code; no `next-sanity`). The image field is inert until B.06, so `next.config.ts` is unchanged.
+B.05 adds **no** new dependencies and **no** new environment variables (no portable-text editor library — the body is plain text ⇄ minimal Portable Text in app code; no `next-sanity`). The image field was inert until B.06.
+
+## Per-tenant featured-image upload (B.06 — `server-only` upload site + editor control)
+
+Featured-image bytes go to the client's own dataset through the same B.04 bridge — built per request from the session-resolved tenant's project + token, never a browser token.
+
+- `src/lib/sanity/assets.ts` (`server-only`) — `uploadImage(tenant, file, makeUploader?)`, the only image-upload site. Validates **before** any byte is sent (empty / > 4 MB / type outside JPG-PNG-WebP-GIF → typed `ImageUploadError`), converts the web `File` → Node `Buffer` (avoids the sanity-io/client #135 "body must be a string/buffer/stream" throw), and uploads via the per-tenant client's `assets.upload('image', buffer, { filename, contentType })`. Injectable `MakeUploader`/`AssetUploader` seam (mirrors `MakeWriter`). Returns `{ assetId, url }`; the token is never returned/logged. Also exports `isValidAssetId` (canonical `image-<hash>-<w>x<h>-<ext>`, 200-char bound).
+- `src/lib/sanity/mutations.ts` (extended) — `EditorFields.image` (tri-state) + `applyImageIntent`: preserve (omit) / write `{ _type:'image', asset:{ _type:'reference', _ref } }` / actively delete on clear. Applied to `createDraft` + `saveDraft`.
+- `src/lib/config/field-map.ts` (extended) — `buildPostByIdQuery` also projects `imageAssetId`/`imageUrl`; `assertWritableFieldPaths` also validates the image key.
+- `src/app/(portal)/posts/actions.ts` (extended) — `uploadImageAction` (re-resolves + re-authorizes, returns a non-leaking `ImageUploadState`); `parseFields` derives the image tri-state from hidden `image` vs `imageOriginal` and rejects a malformed asset id.
+- `src/components/editor/post-editor.tsx` (extended) — the `FeaturedImageField` control (pick → `useTransition` upload → `next/image` preview → Remove/Replace; unnamed file input; hidden `image`/`imageOriginal`).
+
+B.06 adds **no** new dependencies and **no** new environment variables. The Sanity Editor token (least-privilege Editor on that one client's project) is the only credential the upload uses — it already came from the registry in B.04; no browser-exposed token is ever introduced.
 
 ## Theme / brand (in `src/app/globals.css`)
 

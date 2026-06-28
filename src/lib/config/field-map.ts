@@ -62,15 +62,18 @@ export function buildPostListQuery(config: TenantConfig): string {
  * published variant and/or its `drafts.`-prefixed working copy as separate
  * entries; the read path reduces them to one editable copy (draft preferred).
  *
- * Unlike the list query, this also projects the `body` field (the editor needs
- * it). All four interpolated field names are validated first.
+ * Unlike the list query, this also projects the `body` field and the featured
+ * image (the editor needs both). The image is a flat field name, like `title`;
+ * its asset id and a public CDN url are projected so the edit form can show an
+ * already-attached image. All five interpolated field names are validated first.
  */
 export function buildPostByIdQuery(config: TenantConfig): string {
-  const { title, excerpt, slug, body } = config.fieldMap
+  const { title, excerpt, slug, body, image } = config.fieldMap
   assertSafeFieldPath(title)
   assertSafeFieldPath(excerpt)
   assertSafeFieldPath(slug)
   assertSafeFieldPath(body)
+  assertSafeFieldPath(image)
 
   return (
     `*[_id == $id || _id == $draftId]{` +
@@ -79,23 +82,26 @@ export function buildPostByIdQuery(config: TenantConfig): string {
     `"title": ${title},` +
     `"excerpt": ${excerpt},` +
     `"slug": ${slug},` +
-    `"body": ${body}` +
+    `"body": ${body},` +
+    `"imageAssetId": ${image}.asset._ref,` +
+    `"imageUrl": ${image}.asset->url` +
     `}`
   )
 }
 
 /**
  * Validates the field names used as **mutation object keys** (`title`, `body`,
- * `excerpt`). Defense in depth: a write builds a Sanity document whose keys come
- * from the registry `field_map`, so a malformed row must never be able to inject
- * an unexpected mutation key. These v1 essentials are flat top-level fields (the
- * slug is handled separately via {@link slugContainerField}).
+ * `excerpt`, `image`). Defense in depth: a write builds a Sanity document whose
+ * keys come from the registry `field_map`, so a malformed row must never be able
+ * to inject an unexpected mutation key. These v1 essentials are flat top-level
+ * fields (the slug is handled separately via {@link slugContainerField}).
  */
 export function assertWritableFieldPaths(config: TenantConfig): void {
-  const { title, body, excerpt } = config.fieldMap
+  const { title, body, excerpt, image } = config.fieldMap
   assertSafeFieldPath(title)
   assertSafeFieldPath(body)
   assertSafeFieldPath(excerpt)
+  assertSafeFieldPath(image)
 }
 
 /**

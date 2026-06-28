@@ -278,6 +278,92 @@ describe('deletePost', () => {
   })
 })
 
+describe('featured image (B.06)', () => {
+  const IMAGE_REF = {
+    _type: 'image',
+    asset: { _type: 'reference', _ref: 'image-new-1x1-png' },
+  }
+
+  it('createDraft writes the image reference when an asset id is set', async () => {
+    const rec = makeRecordingWriter()
+    await createDraft(
+      TENANT,
+      { ...FIELDS, image: { assetId: 'image-new-1x1-png' } },
+      rec.factory,
+    )
+    const d = rec.dispatches[0]
+    if (d.kind !== 'createOrReplace') throw new Error('unreachable')
+    expect(d.doc.mainImage).toEqual(IMAGE_REF)
+  })
+
+  it('createDraft writes no image when the intent is omitted', async () => {
+    const rec = makeRecordingWriter()
+    await createDraft(TENANT, FIELDS, rec.factory) // FIELDS has no `image`
+    const d = rec.dispatches[0]
+    if (d.kind !== 'createOrReplace') throw new Error('unreachable')
+    expect('mainImage' in d.doc).toBe(false)
+  })
+
+  it('saveDraft overwrites the stored image when a new asset id is set', async () => {
+    const seeded: FetchedDoc[] = [
+      {
+        _id: 'p1',
+        _type: 'blogPost',
+        title: 'Old',
+        mainImage: { _type: 'image', asset: { _ref: 'image-old' } },
+      },
+    ]
+    const rec = makeRecordingWriter(seeded)
+    await saveDraft(
+      TENANT,
+      'p1',
+      { ...FIELDS, image: { assetId: 'image-new-1x1-png' } },
+      rec.factory,
+    )
+    const d = rec.dispatches[0]
+    if (d.kind !== 'createOrReplace') throw new Error('unreachable')
+    expect(d.doc.mainImage).toEqual(IMAGE_REF)
+  })
+
+  it('saveDraft drops the image field entirely when cleared (assetId null)', async () => {
+    const seeded: FetchedDoc[] = [
+      {
+        _id: 'p1',
+        _type: 'blogPost',
+        title: 'Old',
+        mainImage: { _type: 'image', asset: { _ref: 'image-old' } },
+        author: { _ref: 'author-1' },
+      },
+    ]
+    const rec = makeRecordingWriter(seeded)
+    await saveDraft(
+      TENANT,
+      'p1',
+      { ...FIELDS, image: { assetId: null } },
+      rec.factory,
+    )
+    const d = rec.dispatches[0]
+    if (d.kind !== 'createOrReplace') throw new Error('unreachable')
+    // The whole document is replaced, so the image must be ABSENT (not undefined-
+    // carried) — otherwise createOrReplace would resurrect the old image.
+    expect('mainImage' in d.doc).toBe(false)
+    // Other non-essential fields are still preserved.
+    expect(d.doc.author).toEqual({ _ref: 'author-1' })
+  })
+
+  it('saveDraft preserves the stored image when the intent is omitted', async () => {
+    const stored = { _type: 'image', asset: { _ref: 'image-keep' } }
+    const seeded: FetchedDoc[] = [
+      { _id: 'p1', _type: 'blogPost', title: 'Old', mainImage: stored },
+    ]
+    const rec = makeRecordingWriter(seeded)
+    await saveDraft(TENANT, 'p1', FIELDS, rec.factory) // no `image` key
+    const d = rec.dispatches[0]
+    if (d.kind !== 'createOrReplace') throw new Error('unreachable')
+    expect(d.doc.mainImage).toEqual(stored)
+  })
+})
+
 describe('no token leakage', () => {
   it('never returns or stringifies the token from any mutation', async () => {
     const rec = makeRecordingWriter([
