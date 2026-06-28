@@ -129,3 +129,37 @@ Choices made during B.02 that the phase prompt did not spell out:
 - **`.env.local.example` added** (operator aid for the non-technical owner; tracked via the existing `!.env.local.example` `.gitignore` allowlist). Contains variable names + placeholders only — no values.
 
 **Decided by:** Claude, during B.02 implementation. None reverse a prior locked decision; they implement the locked "Supabase auth, no public signup, tokens server-side" decision (2026-06-26) and honour `AGENTS.md` (deprecation notices) and `dashboard-Project-Instructions.md` §5 (server-side auth, Server Actions re-verify).
+
+---
+
+## 2026-06-27 — Token encryption: AES-256-GCM at the app layer (not Supabase Vault)
+
+Per-client Sanity write tokens are encrypted **in the application** with **AES-256-GCM** before they are stored. Only the base64 ciphertext, IV, and GCM auth tag land in the database (a dedicated `client_secrets` table). The 32-byte key lives **only** in a server-side env var (`SANITY_TOKEN_ENC_KEY`) — never in the database.
+
+**Why this over Supabase Vault / `pgsodium`:**
+- **Separation of trust.** With the key outside the database, a database dump — or even a service-role-key leak — **alone** cannot reveal a token. An attacker would also need the separate app key. Vault stores the key material inside the same database, so a sufficient DB/service-role compromise can decrypt.
+- **No dependency on an evolving feature.** App-layer crypto using Node's built-in `node:crypto` depends on nothing that Supabase might change or deprecate.
+- **Defence in depth, not either/or.** This sits *on top of* the `client_secrets` RLS lockdown (deny-all to browser sessions): the ciphertext table is unreadable by users, and even the ciphertext is useless without the app key.
+
+**Cost accepted:** the app must hold and protect `SANITY_TOKEN_ENC_KEY` (server env only, in `.env.local` and Vercel; lose it and stored tokens can't be decrypted). Key **rotation** is deferred to a later phase. Decrypting and *using* tokens is wired in B.04; B.03 only seals and stores them.
+
+**Decided by:** user (Lazar) + Claude (security pattern), in planning. This refines the locked 2026-06-26 "tokens stored server-side, encrypted" decision with the specific mechanism; treat any change as requiring a new entry.
+
+---
+
+## 2026-06-27 — B.03 implementation choices (registry data model)
+
+Choices made during B.03 that the phase prompt did not spell out:
+
+- **RLS policies use `(select auth.uid())`, not bare `auth.uid()`.** Functionally identical to the brief's `using (user_id = auth.uid())`, but the sub-select form is evaluated once per query (initplan) instead of once per row — Supabase's recommended pattern, and it avoids the `auth_rls_initplan` advisor warning. Alternative rejected: bare `auth.uid()` (slower at scale, lints with a warning).
+- **Migration hardened for the non-technical operator:** `create table if not exists`, `drop policy if exists` before each `create policy`, `comment on table` documenting the security intent, and an index on `client_users(client_id)` (Postgres doesn't auto-index FKs; this speeds the `clients` RLS sub-query and cascade deletes). Effect: the operator can copy-paste-Run the SQL more than once without errors. None of this changes the spec's table shape or policies.
+- **`server-only` is a production dependency** (pinned `0.0.1`, the version Next itself uses), because app code (`admin.ts`, `tokens.ts`) imports it. Token encryption uses Node's built-in `node:crypto` — **no third-party crypto library** is added.
+- **Vitest is the test runner, added now (not deferred to B.04).** The brief allowed adding it if none was configured; B.04+ need it, and B.03's crypto module must be tested. Pinned `vitest@4.1.9`. Scripts run with `tsx@4.22.4` (pinned), per the brief.
+- **`server-only` is aliased to a no-op stub for Vitest and the tsx scripts.** The real `server-only` package throws unless resolved under the Next bundler's `react-server` export condition; Vitest and tsx run in plain Node and would throw. They alias it to `test/setup/server-guard-stub.ts` (via `vitest.config.ts` `resolve.alias` and `scripts/tsconfig.json` `paths`). The genuine guard still protects the real client bundle (verified: `npm run build` passes and neither module is imported by a `'use client'` file). Alternative tried and rejected: running tsx/Node with `--conditions=react-server` — empirically it does **not** work under tsx (tsx uses its own resolver), so the alias is the reliable mechanism.
+- **Scripts load `.env.local` via Node's built-in `process.loadEnvFile`** (Node ≥ 20.12) — no `dotenv` dependency. Guarded so it's a no-op when the vars are already in the environment (e.g. CI).
+- **The seed script is idempotent:** it reuses the user's existing `client_users` mapping if present (updating that client) instead of inserting a second client, so re-runs converge to exactly one client per user with no orphans.
+- **The verify script treats a permission-denied error on `client_secrets` as "zero rows readable."** Because `client_secrets` privileges are revoked from `authenticated`, a user's `select` is rejected outright rather than returning an empty set; both satisfy the "0 rows" invariant, and the stronger error is logged as evidence.
+- **Test-user creds for the verify script** (`TEST_USER_EMAIL` / `TEST_USER_PASSWORD`, optional `TEST_USER_ID`) are documented in `.env.local.example` (names/placeholders only) under a clearly-labelled verify-only section, so the operator can run `npm run verify:registry`. They are the test user's own login, not app config.
+- **Local isolation proof via an in-process Postgres (pglite).** No Docker / Supabase CLI was available locally, so the *actual* migration was run against pglite under a faithful simulation of Supabase's roles + `auth.uid()` to prove cross-tenant isolation offline (not committed — a throwaway harness). The committed, operator-run proof remains `verify-registry.ts` against the real Supabase; the *formal automated* cross-tenant test on the read path is B.04's deliverable.
+
+**Decided by:** Claude, during B.03 implementation. None reverse a prior locked decision; they implement the locked encryption decision (above) and §5 of the project instructions (server-only tokens, RLS, isolation as a tested invariant).
