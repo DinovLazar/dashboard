@@ -1,8 +1,8 @@
 # Stack and Configuration
 
-The real, verified stack for the Vertex Consulting client blog portal as of **Phase B.04** (2026-06-27). Append changes as they land; keep it factual.
+The real, verified stack for the Vertex Consulting client blog portal as of **Phase B.05** (2026-06-27). Append changes as they land; keep it factual.
 
-**Build status: building clean with auth + the registry data layer + the secure per-tenant Sanity read path.** `npm run build` passes, `npm run lint` is clean, and `npm test` is green (**35 tests**: 10 crypto + the B.04 cross-tenant isolation, read-path reduce, and field-map injection-guard suites). The Supabase registry schema (three tables + RLS) lives in `supabase/migrations/`; the encrypted-token crypto module, the service-role client, the tenant resolver, and the per-tenant Sanity read path are in place. `/login` and `/posts` are dynamic (`ƒ`), and the proxy is active.
+**Build status: building clean with auth + the registry data layer + the secure per-tenant Sanity read AND write path (the config-driven editor).** `npm run build` passes (the `server-only` guard holds), `npm run lint` is clean, and `npm test` is green (**105 tests**: 10 crypto + the B.04 read-path suites + the B.05 write path — mutations dispatch shapes, `getPost`, localize, portable-text, doc-id, and the cross-tenant isolation test now extended to all four mutations). The Supabase registry schema (three tables + RLS) lives in `supabase/migrations/`; the encrypted-token crypto module, the service-role client, the tenant resolver, the per-tenant Sanity read path, the **mutation module** (`src/lib/sanity/mutations.ts`), and the **mutating Server Actions** (`src/app/(portal)/posts/actions.ts`) are in place. `/login`, `/posts`, `/posts/new`, and `/posts/[id]` are dynamic (`ƒ`), and the proxy is active. **B.05 added no new dependencies, no new environment variables, and no `next.config.ts` change.**
 
 ## Framework and runtime
 
@@ -82,6 +82,19 @@ The server-side bridge that turns a session into one client's posts. All modules
 - `src/lib/config/field-map.ts` — `assertSafeFieldPath` (GROQ-injection guard) + `buildPostListQuery` (`$type` bound as a parameter). Pure logic, no secret.
 
 The Sanity project id + token come entirely from the registry (never env); B.04 adds **no** new environment variables.
+
+## Per-tenant Sanity write path (B.05 — `server-only` write site + pure helpers)
+
+The editor writes through the same B.04 bridge — built per request from the session-resolved tenant's project + token.
+
+- `src/lib/sanity/mutations.ts` (`server-only`) — `createDraft` / `saveDraft` / `publishPost` / `deletePost`, the only write site. Injectable `SanityWriter` / `WriteTransaction` / `MakeWriter` seam; draft-id model; read-modify-write overlay; atomic publish/delete transactions; `{ visibility: 'sync' }`; token never returned/logged.
+- `src/lib/sanity/doc-id.ts` (pure, no secret) — `normalizePostId` / `isValidDocId` / `draftId`: the single source of truth for id sanitization (strips `drafts.`/`versions.` prefixes; rejects non-plain ids).
+- `src/lib/config/localize.ts` (pure) — `toFieldValue` / `fromFieldValue` / `fromLocalizedRaw` (+ `localeList` / `primaryLocale` / `isMultiLocale`): single-locale plain value ⇄ multi-locale `{ [locale]: value }`. The exact multi-locale storage shape is provisional (confirmed per real client in M.01).
+- `src/lib/config/portable-text.ts` (pure) — `textToPortableText` / `portableTextToText` / `isEditableBody`: plain text ⇄ minimal Portable Text + the rich-body data-loss guard.
+- `src/lib/config/field-map.ts` (extended) — `buildPostByIdQuery` (`$id`/`$draftId` bound; projects body), `assertWritableFieldPaths`, `slugContainerField`.
+- `src/app/(portal)/posts/actions.ts` (`'use server'`) — the four mutating actions; each re-resolves + re-authorizes; `revalidatePath` on success; generic non-leaking errors.
+
+B.05 adds **no** new dependencies and **no** new environment variables (no portable-text editor library — the body is plain text ⇄ minimal Portable Text in app code; no `next-sanity`). The image field is inert until B.06, so `next.config.ts` is unchanged.
 
 ## Theme / brand (in `src/app/globals.css`)
 

@@ -1,11 +1,14 @@
+import Link from "next/link"
+import { ChevronRight } from "lucide-react"
+
 import type { PostSummary } from "@/lib/sanity/posts"
 
 /**
- * Presentational post list (B.04). A plain Server Component that renders only
+ * Presentational post list. A plain Server Component that renders only
  * `PostSummary[]` — it never receives the tenant or the token (those stay in the
  * server-side read path). Each row shows the title, a draft/published badge with
- * a subtle "edited" hint for unpublished edits, and a last-updated time. Rows are
- * not yet links: the editor they will open is B.05.
+ * a subtle "edited" hint for unpublished edits, and a last-updated time. Each row
+ * links to `/posts/[id]`, the editor (B.05).
  */
 
 /** Short, human relative time (e.g. "2 hours ago", "Yesterday", "Mar 3, 2026"). */
@@ -75,7 +78,10 @@ export function PostsList({ posts }: { posts: PostSummary[] }) {
     <ul className="flex flex-col gap-2">
       {posts.map((post) => (
         <li key={post.id}>
-          <div className="flex items-center justify-between gap-4 rounded-card border border-border bg-card/40 px-4 py-3.5 transition-colors hover:bg-card/70 sm:px-5">
+          <Link
+            href={`/posts/${post.id}`}
+            className="group flex items-center justify-between gap-4 rounded-card border border-border bg-card/40 px-4 py-3.5 transition-colors hover:border-border hover:bg-card/70 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none sm:px-5"
+          >
             <div className="flex min-w-0 flex-col gap-1">
               <div className="flex flex-wrap items-center gap-2.5">
                 <h2 className="truncate font-heading text-body font-medium text-foreground">
@@ -93,14 +99,20 @@ export function PostsList({ posts }: { posts: PostSummary[] }) {
               ) : null}
             </div>
 
-            <time
-              dateTime={post.updatedAt}
-              title={formatAbsolute(post.updatedAt)}
-              className="shrink-0 text-micro text-muted-foreground tabular-nums"
-            >
-              {formatRelativeTime(post.updatedAt)}
-            </time>
-          </div>
+            <div className="flex shrink-0 items-center gap-3">
+              <time
+                dateTime={post.updatedAt}
+                title={formatAbsolute(post.updatedAt)}
+                className="text-micro text-muted-foreground tabular-nums"
+              >
+                {formatRelativeTime(post.updatedAt)}
+              </time>
+              <ChevronRight
+                className="size-4 text-muted-foreground/50 transition-colors group-hover:text-muted-foreground"
+                aria-hidden
+              />
+            </div>
+          </Link>
         </li>
       ))}
     </ul>

@@ -231,3 +231,44 @@ Choices made during B.04 that the phase prompt did not spell out (none reverse a
 - **`@` is aliased to `src/` in `vitest.config.ts`** (mirroring the `@/*` → `./src/*` tsconfig path) so the B.04 modules, which import each other via `@/lib/...`, resolve under Vitest exactly as in the Next build. The existing crypto test used relative imports and never needed it.
 
 **Decided by:** Claude, during B.04 implementation.
+
+---
+
+## 2026-06-27 — B.05 editor: write model & scope (essentials-only, draft-id model, write through the B.04 bridge)
+
+The portal's editor writes the **essentials only** (headline, body, summary, slug; image is B.06) through the **same B.04 secure bridge** as the read path — every write is built from the per-request, session-resolved tenant (`resolveTenant()` → `{ config, token }`) and nothing else. Publish state is governed by **Sanity's draft-id model**, identical to the B.04 read reduction:
+
+- **Save-as-draft** writes `drafts.<id>` via `createOrReplace` (writing the published id directly would publish instantly and break the status reduction).
+- **Publish** promotes the draft to the published id and deletes the draft in **one all-or-nothing transaction**; if there is no draft it is a no-op success.
+- **Delete** removes both variants in one transaction.
+- The schema-level `status` field is left in config for compatibility but **never written** (avoids two competing sources of truth; per-client `status` handling, if a real client needs it, is M.01).
+
+**Edit preserves the client's non-essential fields** (image, author, categories, FAQs, cross-links): save does a read-modify-write overlay (`{ ...currentDoc, ...essentials }`), never a bare replace of only the essentials. **Body is plain-text ⇄ minimal Portable Text** (one paragraph block per blank-line-separated paragraph); a body richer than simple normal paragraphs is detected and shown **read-only** so a plain-text save can never silently strip rich content.
+
+**Authorize on every mutation.** Server Actions are reachable by direct POST, so each action **re-resolves the tenant itself** (it never receives a tenant from the page) and acts only on that one client's project + token. No caller-supplied project/client/token is trusted; a submitted post id is normalized (prefixes stripped, non-plain ids rejected) and only ever applied through the owner's per-tenant client — so an attacker-shaped id can at most touch a doc in the attacker's own dataset. The cross-tenant isolation test is extended to writes (the §5 gate) and must pass before any editor write ships.
+
+**Alternatives considered:** (a) write a `status` field as the source of truth — rejected (two competing sources; clients don't populate it uniformly). (b) Full-fidelity Portable Text editing — rejected for v1 (out of scope; the rich-body guard protects existing content). (c) Pass the resolved tenant from the page into the action — rejected (a page check doesn't protect a directly-POSTed action; re-resolution is mandatory).
+
+**Decided by:** baked into the B.05 brief by the operator; implemented by Claude.
+
+---
+
+## 2026-06-27 — B.05 implementation choices (config-driven editor)
+
+Choices made during B.05 that the phase prompt did not spell out (none reverse a locked decision; they implement the write-model decision above and §5 of the project instructions):
+
+- **Two extra dedicated, tested modules beyond the brief's file list, each a single source of truth for security/data-loss-sensitive logic:** `src/lib/config/portable-text.ts` (text ⇄ minimal Portable Text + `isEditableBody`, the data-loss guard from Gotcha 6) and `src/lib/sanity/doc-id.ts` (`normalizePostId` / `isValidDocId` / `draftId`, the id-sanitization from §2). The brief described this logic inline; pulling each into its own pure, unit-tested module avoids duplicating it across the read path, the write path, and the actions. Both are pure (no secret) so neither is `server-only`. Each has its own test file (`portable-text.test.ts`, `doc-id.test.ts`).
+- **The rich-body guard is conservative beyond the brief's enumerated list.** Besides marks/annotations/non-span children/non-`block` types, `isEditableBody` also treats a non-`normal` block `style` (headings), `listItem`/`level` (lists), and non-array bodies as **not editable**. Rationale: the standard is "never silently strip a client's rich content," so anything the plain-text round-trip cannot represent is shown read-only. The test client's plain bodies are unaffected.
+- **A non-editable body is preserved by omission, not by writing it back.** When `bodyEditable` is false the editor sets a hidden `bodyEditable=false`; the action then **omits the body** from the mutation, so the save's read-modify-write overlay leaves the stored (rich) body untouched. `EditorFields.body` is optional precisely so "omit" means "preserve."
+- **`toFieldValue` is generic over the value type** (string for title/excerpt, Portable Text array for body) rather than string-only as the brief's signature suggested — the single-vs-multi-locale wrapping logic is identical for both, so body localization reuses it. `fromFieldValue` stays string-specialized (the brief's named contract); `fromLocalizedRaw` is the generic read-back used for the body.
+- **Slug is written only when non-empty** (as `{ _type: 'slug', current }` on the container field from `slugContainerField`); empty → omitted, so on save the overlay preserves any existing slug. The `image` and `status` fields are never written (B.06 / draft-id model).
+- **The editor imports the four Server Actions directly** (like `login-form.tsx` imports `signIn`), rather than receiving them as props from the page. Equivalent for a module-level Server Action (it re-resolves and reads `FormData`; it carries no page closure), and simpler. The security-relevant constraint — the client boundary receives only non-secret serializable props, never the tenant/token — is honored: `post-editor.tsx` gets labels/locales/values only.
+- **Multi-locale tabs keep every locale's inputs mounted** (inactive ones merely `hidden`) so a multi-locale submit always carries all languages; single-locale renders no tabs. Field inputs are named `title.<locale>` / `excerpt.<locale>` / `body.<locale>` (slug is `slug`), which the actions read back per `config.locales`.
+- **Two `useActionState` hooks share one `<form>` on the edit screen:** the form's `action` is Save-draft and the Publish button uses `formAction` to target the publish action — so both submit the same fields while keeping independent pending/error state. Delete is its own form with a two-click confirm step. Create mode is a single form → `createPostAction`.
+- **Publish = save-then-publish.** The Publish button submits the live edit form, so `publishPostAction` first **persists the on-screen edits** into the draft (same `parseFields` + `bodyEditable` rules and `titleMissing` guard as Save), then calls `publishPost` to promote that draft. This makes "Publish" mean "make exactly what I see live" — it never silently drops the user's in-form edits and never promotes a stale older draft. (This corrected a first-pass bug — caught by the B.05 adversarial review — where `publishPostAction` read only the id and promoted the pre-existing draft, so editing-then-Publish on a clean post was a reported-success no-op that lost the edits. The mutation-layer `publishPost(tenant, id)` itself is unchanged: it still promotes the draft + deletes it in one transaction.)
+- **Action outcomes:** `createPostAction` redirects to `/posts/<newId>` (the editor for the fresh draft); `saveDraftAction`/`publishPostAction` `revalidatePath('/posts')` + `revalidatePath('/posts/<id>')` and return an `ok` result (the dynamic edit page re-renders with fresh status); `deletePostAction` revalidates `/posts` and redirects there. `redirect()` is always **outside** the try/catch so its control-flow signal is never swallowed into the generic error.
+- **`normalizePostId` is strict:** after stripping a single `drafts.` or `versions.<release>.` prefix, the remainder must match `^[A-Za-z0-9_-]+$` (no dots, no path chars) or it throws. `getPost` treats a throw as not-found (a junk URL → friendly 404); the actions treat it as the generic error. Generated ids are UUIDs, so this strictness costs nothing and closes id-smuggling.
+- **Friendly editor states mirror the `/posts` page:** `not-linked` / `not-ready` (resolution failure), `not-found` (no such post / foreign id), and `read-error`, via a shared presentational `EditorMessage` server component with a "Back to posts" link. None leak a project id, token, doc type, or raw error.
+- **Whole-suite tests grew 35 → 105.** New offline files: `localize.test.ts`, `portable-text.test.ts`, `doc-id.test.ts`, `mutations.test.ts`; extended: `field-map.test.ts`, `posts.test.ts` (getPost), and `isolation.test.ts` (the write-path §5 gate).
+
+**Decided by:** Claude, during B.05 implementation.

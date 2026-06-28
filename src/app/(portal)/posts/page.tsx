@@ -1,7 +1,9 @@
 import type { Metadata } from "next"
+import Link from "next/link"
 import { AlertTriangle, FileText, Plus, Unplug } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { buttonVariants } from "@/components/ui/button"
 import { PostsList } from "@/components/portal/posts-list"
+import { cn } from "@/lib/utils"
 import {
   resolveTenant,
   TenantResolutionError,
@@ -126,10 +128,13 @@ export default async function PostsPage() {
               publish it to your live site.
             </p>
           </div>
-          <Button type="button" variant="outline" disabled className="h-9">
+          <Link
+            href="/posts/new"
+            className={cn(buttonVariants({ variant: "outline" }), "h-9")}
+          >
             <Plus className="size-4" aria-hidden />
             New post
-          </Button>
+          </Link>
         </div>
       </PostsShell>
     )
@@ -165,10 +170,16 @@ function PostsShell({
           </p>
         </div>
 
-        <Button type="button" disabled className="h-9 self-start sm:self-auto">
+        <Link
+          href="/posts/new"
+          className={cn(
+            buttonVariants({ variant: "default" }),
+            "h-9 self-start sm:self-auto",
+          )}
+        >
           <Plus className="size-4" aria-hidden />
           New post
-        </Button>
+        </Link>
       </div>
 
       {children}

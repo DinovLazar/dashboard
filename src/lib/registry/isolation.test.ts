@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
 import type { EncryptedToken } from '@/lib/crypto/tokens'
+import {
+  createDraft,
+  deletePost,
+  publishPost,
+  saveDraft,
+  type EditorFields,
+  type MakeWriter,
+  type WriteTransaction,
+} from '@/lib/sanity/mutations'
 import { listPosts, type SanityReader } from '@/lib/sanity/posts'
 
 import {
@@ -157,6 +166,68 @@ function makeRecordingClient() {
     }
   }
   return { factory, constructions }
+}
+
+// --- Write path (B.05) ------------------------------------------------------
+
+/** Editor input used by the write-path cases (meaningless content). */
+const WRITE_FIELDS: EditorFields = {
+  title: { en: 'A headline' },
+  excerpt: { en: 'A summary' },
+  slug: null,
+  body: { en: 'Body text.' },
+}
+
+/** A seeded draft per project so save/publish have a working copy to read. */
+const PROJECT_WRITE_DOCS: Record<
+  string,
+  Array<Record<string, unknown> & { _id?: string }>
+> = {
+  'project-a': [{ _id: 'drafts.a1', _type: 'blogPost', title: 'A draft' }],
+  'project-b': [{ _id: 'drafts.b1', _type: 'article', headline: 'B draft' }],
+}
+
+/**
+ * A recording WRITER factory — the write-path analogue of `makeRecordingClient`.
+ * It captures the (config, token) every writer is built with, and records the
+ * project + token EACH actual dispatch (a `createOrReplace` or a committed
+ * transaction) flows through. The §5 gate asserts on both: a write must never be
+ * built with, nor dispatched through, another tenant's project or token.
+ */
+function makeRecordingWriter() {
+  const constructions: Array<{ config: TenantConfig; token: string }> = []
+  const dispatches: Array<{ project: string; token: string }> = []
+
+  const factory: MakeWriter = (config, token) => {
+    constructions.push({ config, token })
+    const record = () =>
+      dispatches.push({ project: config.sanityProjectId, token })
+    return {
+      async fetch<T>(_query: string, params?: Record<string, unknown>): Promise<T> {
+        const docs = PROJECT_WRITE_DOCS[config.sanityProjectId] ?? []
+        return docs.filter(
+          (d) => d._id === params?.id || d._id === params?.draftId,
+        ) as unknown as T
+      },
+      async createOrReplace() {
+        record()
+        return {}
+      },
+      transaction(): WriteTransaction {
+        const txn: WriteTransaction = {
+          createOrReplace: () => txn,
+          delete: () => txn,
+          async commit() {
+            record()
+            return {}
+          },
+        }
+        return txn
+      },
+    }
+  }
+
+  return { factory, constructions, dispatches }
 }
 
 /** Run the resolver and return the typed `reason` of the rejection it throws. */
@@ -326,6 +397,151 @@ describe('cross-tenant isolation — B.04 read path', () => {
       await expect(
         resolveTenantWith(depsFor('user-a', source)),
       ).rejects.toThrow(/unknown ciphertext/)
+    })
+  })
+})
+
+describe('cross-tenant isolation — B.05 write path (the §5 gate)', () => {
+  it('every mutation builds + dispatches only through the owner’s project + token', async () => {
+    const { source } = makeRegistry()
+
+    // A → A: exercise all four mutations through one recording writer.
+    const recA = makeRecordingWriter()
+    const tenantA = await resolveTenantWith(depsFor('user-a', source))
+    await createDraft(tenantA, WRITE_FIELDS, recA.factory)
+    await saveDraft(tenantA, 'a1', WRITE_FIELDS, recA.factory)
+    await publishPost(tenantA, 'a1', recA.factory)
+    await deletePost(tenantA, 'a1', recA.factory)
+
+    // Every writer was BUILT with A's project + token, never B's.
+    expect(recA.constructions.length).toBeGreaterThan(0)
+    for (const c of recA.constructions) {
+      expect(c.config.clientId).toBe('client-a')
+      expect(c.config.sanityProjectId).toBe('project-a')
+      expect(c.token).toBe(TOKEN_A)
+      expect(c.config.sanityProjectId).not.toBe('project-b')
+      expect(c.token).not.toBe(TOKEN_B)
+    }
+    // Every actual write DISPATCHED through A's project + token. All four
+    // mutations dispatch exactly once (create + save + publish + delete) — the
+    // count makes the publish assertion non-vacuous: a silent publish no-op
+    // would drop the count below 4 and fail here, not pass unnoticed.
+    expect(recA.dispatches).toHaveLength(4)
+    for (const d of recA.dispatches) {
+      expect(d.project).toBe('project-a')
+      expect(d.token).toBe(TOKEN_A)
+      expect(d.project).not.toBe('project-b')
+      expect(d.token).not.toBe(TOKEN_B)
+    }
+
+    // B → B symmetrically: never A's project or token.
+    const recB = makeRecordingWriter()
+    const tenantB = await resolveTenantWith(depsFor('user-b', source))
+    await createDraft(tenantB, WRITE_FIELDS, recB.factory)
+    await saveDraft(tenantB, 'b1', WRITE_FIELDS, recB.factory)
+    await publishPost(tenantB, 'b1', recB.factory)
+    await deletePost(tenantB, 'b1', recB.factory)
+
+    for (const c of recB.constructions) {
+      expect(c.config.sanityProjectId).toBe('project-b')
+      expect(c.token).toBe(TOKEN_B)
+      expect(c.config.sanityProjectId).not.toBe('project-a')
+      expect(c.token).not.toBe(TOKEN_A)
+    }
+    expect(recB.dispatches).toHaveLength(4)
+    for (const d of recB.dispatches) {
+      expect(d.project).toBe('project-b')
+      expect(d.token).toBe(TOKEN_B)
+      expect(d.project).not.toBe('project-a')
+      expect(d.token).not.toBe(TOKEN_A)
+    }
+  })
+
+  it('an attacker-controlled / foreign post id still dispatches only through the owner’s project + token', async () => {
+    const { source } = makeRegistry()
+    const recA = makeRecordingWriter()
+    const tenantA = await resolveTenantWith(depsFor('user-a', source))
+
+    // Feed A's session a foreign-looking id (B's doc id, and a prefixed variant).
+    // The id only ever selects within A's OWN dataset — it can never reach B.
+    await saveDraft(tenantA, 'b1', WRITE_FIELDS, recA.factory)
+    await deletePost(tenantA, 'drafts.b1', recA.factory)
+    await publishPost(tenantA, 'versions.rX.b1', recA.factory)
+
+    for (const c of recA.constructions) {
+      expect(c.config.sanityProjectId).toBe('project-a')
+      expect(c.token).toBe(TOKEN_A)
+    }
+    for (const d of recA.dispatches) {
+      expect(d.project).toBe('project-a')
+      expect(d.token).toBe(TOKEN_A)
+      expect(d.project).not.toBe('project-b')
+      expect(d.token).not.toBe(TOKEN_B)
+    }
+  })
+
+  it('takes no caller-supplied client/project/token — the session identity is the only selector', async () => {
+    // Asserted by construction: createDraft/saveDraft/publishPost/deletePost take
+    // (tenant, [id], fields, makeWriter). `tenant` comes only from resolveTenant
+    // (the session identity); there is NO project/client/token parameter. The same
+    // registry pointed at each identity yields only that owner's writes.
+    const { source } = makeRegistry()
+    const recA = makeRecordingWriter()
+    const recB = makeRecordingWriter()
+
+    const tenantA = await resolveTenantWith(depsFor('user-a', source))
+    const tenantB = await resolveTenantWith(depsFor('user-b', source))
+    await createDraft(tenantA, WRITE_FIELDS, recA.factory)
+    await createDraft(tenantB, WRITE_FIELDS, recB.factory)
+
+    expect(
+      recA.constructions.every(
+        (c) => c.token === TOKEN_A && c.config.sanityProjectId === 'project-a',
+      ),
+    ).toBe(true)
+    expect(
+      recB.constructions.every(
+        (c) => c.token === TOKEN_B && c.config.sanityProjectId === 'project-b',
+      ),
+    ).toBe(true)
+  })
+
+  describe('fail closed before any write', () => {
+    it('an unmapped user is denied before any writer is built or secret read', async () => {
+      const { source, secretReads } = makeRegistry()
+      const rec = makeRecordingWriter()
+
+      // Model the action flow: resolve → (only then) mutate.
+      let reachedWritePath = false
+      const run = async () => {
+        const tenant = await resolveTenantWith(depsFor('user-unmapped', source))
+        reachedWritePath = true
+        await createDraft(tenant, WRITE_FIELDS, rec.factory)
+      }
+
+      expect(await reasonOf(run)).toBe('no-client')
+      expect(reachedWritePath).toBe(false)
+      expect(rec.constructions).toHaveLength(0)
+      expect(rec.dispatches).toHaveLength(0)
+      expect(secretReads).toHaveLength(0)
+    })
+
+    it('a null session is denied before any writer is built or registry touched', async () => {
+      const { source, mappingReads, secretReads } = makeRegistry()
+      const rec = makeRecordingWriter()
+
+      let reachedWritePath = false
+      const run = async () => {
+        const tenant = await resolveTenantWith(depsFor(null, source))
+        reachedWritePath = true
+        await deletePost(tenant, 'a1', rec.factory)
+      }
+
+      expect(await reasonOf(run)).toBe('unauthenticated')
+      expect(reachedWritePath).toBe(false)
+      expect(rec.constructions).toHaveLength(0)
+      expect(mappingReads).toHaveLength(0)
+      expect(secretReads).toHaveLength(0)
     })
   })
 })

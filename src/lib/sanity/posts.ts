@@ -1,9 +1,12 @@
 import 'server-only'
 
-import { buildPostListQuery } from '@/lib/config/field-map'
+import { buildPostByIdQuery, buildPostListQuery } from '@/lib/config/field-map'
+import { fromFieldValue, fromLocalizedRaw, localeList } from '@/lib/config/localize'
+import { isEditableBody, portableTextToText } from '@/lib/config/portable-text'
 import type { TenantConfig, TenantContext } from '@/lib/registry/types'
 
 import { createTenantSanityClient } from './client'
+import { draftId, normalizePostId } from './doc-id'
 
 /**
  * The read path (B.04): list one tenant's blog posts.
@@ -31,6 +34,36 @@ export interface PostSummary {
   hasUnpublishedEdits: boolean
   /** ISO timestamp of the working copy (`_updatedAt`). */
   updatedAt: string
+}
+
+/**
+ * One logical post loaded for the edit form. Field values are per-locale maps
+ * (single-locale clients have one entry) so the editor can bind a tab per
+ * language. `body` is plain text (converted from Portable Text); `slug` is a
+ * single string (slugs are not localized). The token is never part of this.
+ */
+export interface PostDetail {
+  /** The base (published) logical id — what the editor submits back. */
+  id: string
+  /** Per-locale essential values for the form. */
+  fields: {
+    title: Record<string, string>
+    excerpt: Record<string, string>
+    /** Per-locale plain-text body (Portable Text reduced to paragraphs). */
+    body: Record<string, string>
+    /** The current slug, or "" if none. Not localized. */
+    slug: string
+  }
+  status: 'draft' | 'published'
+  hasUnpublishedEdits: boolean
+  updatedAt: string
+  /**
+   * False when the stored body is richer than simple paragraphs (marks, links,
+   * headings, lists, embeds): the editor then shows it read-only so a plain-text
+   * save can never silently strip the client's rich content. See
+   * `lib/config/portable-text`.
+   */
+  bodyEditable: boolean
 }
 
 /**
@@ -130,4 +163,78 @@ export async function listPosts(
   )
 
   return posts
+}
+
+/** One raw variant as returned by the single-post query (adds the body field). */
+interface RawPostDetailDoc extends RawPostDoc {
+  body?: unknown
+}
+
+/**
+ * Load ONE post for the edit form, or `null` if it does not exist (or the id is
+ * not a valid plain id — a junk URL becomes a friendly not-found).
+ *
+ * Mirrors `listPosts`: builds the per-tenant client from the tenant's own
+ * project + token (the only input; `makeClient` is injectable for offline tests),
+ * fetches both variants with `buildPostByIdQuery` (`$id`/`$draftId` bound as
+ * parameters), and reduces them to one editable working copy — the draft is
+ * preferred, exactly as the list does. Field values come back per-locale; the
+ * body is reduced to plain text with a `bodyEditable` flag guarding rich content.
+ * The token is never returned or logged.
+ */
+export async function getPost(
+  tenant: TenantContext,
+  rawId: string,
+  makeClient: (config: TenantConfig, token: string) => SanityReader = createTenantSanityClient,
+): Promise<PostDetail | null> {
+  let id: string
+  try {
+    // The server derives `drafts.<id>` itself; strip any prefix a caller submits.
+    id = normalizePostId(rawId)
+  } catch {
+    return null
+  }
+  const draft = draftId(id)
+
+  const reader = makeClient(tenant.config, tenant.token)
+  const docs = await reader.fetch<RawPostDetailDoc[]>(
+    buildPostByIdQuery(tenant.config),
+    { id, draftId: draft },
+  )
+
+  let published: RawPostDetailDoc | undefined
+  let draftDoc: RawPostDetailDoc | undefined
+  for (const doc of docs ?? []) {
+    if (doc?._id === draft) draftDoc = doc
+    else if (doc?._id === id) published = doc
+  }
+
+  // Prefer the draft (the working copy), exactly like the list reduction.
+  const source = draftDoc ?? published
+  if (!source) return null
+
+  // Body: split the raw value per locale, convert each to plain text, and flag
+  // the whole post not-editable if ANY locale's body is richer than paragraphs.
+  const rawBody = fromLocalizedRaw(tenant.config, source.body)
+  const body: Record<string, string> = {}
+  let bodyEditable = true
+  for (const loc of localeList(tenant.config)) {
+    const raw = rawBody[loc]
+    if (!isEditableBody(raw)) bodyEditable = false
+    body[loc] = portableTextToText(raw)
+  }
+
+  return {
+    id,
+    fields: {
+      title: fromFieldValue(tenant.config, source.title),
+      excerpt: fromFieldValue(tenant.config, source.excerpt),
+      body,
+      slug: displayValue(source.slug) ?? '',
+    },
+    status: published ? 'published' : 'draft',
+    hasUnpublishedEdits: Boolean(published && draftDoc),
+    updatedAt: source._updatedAt,
+    bodyEditable,
+  }
 }

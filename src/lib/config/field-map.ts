@@ -54,3 +54,59 @@ export function buildPostListQuery(config: TenantConfig): string {
     `}`
   )
 }
+
+/**
+ * Builds the GROQ used to load ONE post for the edit form. Both ids are bound
+ * **parameters** (`$id`, `$draftId`) — never interpolated, so an attacker-shaped
+ * id can never escape into the query. With `perspective: 'raw'` this returns the
+ * published variant and/or its `drafts.`-prefixed working copy as separate
+ * entries; the read path reduces them to one editable copy (draft preferred).
+ *
+ * Unlike the list query, this also projects the `body` field (the editor needs
+ * it). All four interpolated field names are validated first.
+ */
+export function buildPostByIdQuery(config: TenantConfig): string {
+  const { title, excerpt, slug, body } = config.fieldMap
+  assertSafeFieldPath(title)
+  assertSafeFieldPath(excerpt)
+  assertSafeFieldPath(slug)
+  assertSafeFieldPath(body)
+
+  return (
+    `*[_id == $id || _id == $draftId]{` +
+    `_id,` +
+    `_updatedAt,` +
+    `"title": ${title},` +
+    `"excerpt": ${excerpt},` +
+    `"slug": ${slug},` +
+    `"body": ${body}` +
+    `}`
+  )
+}
+
+/**
+ * Validates the field names used as **mutation object keys** (`title`, `body`,
+ * `excerpt`). Defense in depth: a write builds a Sanity document whose keys come
+ * from the registry `field_map`, so a malformed row must never be able to inject
+ * an unexpected mutation key. These v1 essentials are flat top-level fields (the
+ * slug is handled separately via {@link slugContainerField}).
+ */
+export function assertWritableFieldPaths(config: TenantConfig): void {
+  const { title, body, excerpt } = config.fieldMap
+  assertSafeFieldPath(title)
+  assertSafeFieldPath(body)
+  assertSafeFieldPath(excerpt)
+}
+
+/**
+ * Derives the **container** field a write must target for the slug. Reads project
+ * the full path (`fieldMap.slug`, e.g. `slug.current`), but a write sets the
+ * whole slug object (`{ _type: 'slug', current }`) on its container field — the
+ * segment before the first `.` (`slug.current` → `slug`; a bare `slug` → `slug`).
+ * The derived container is validated before it is ever used as a mutation key.
+ */
+export function slugContainerField(config: TenantConfig): string {
+  const container = config.fieldMap.slug.split('.')[0]
+  assertSafeFieldPath(container)
+  return container
+}
